@@ -1,0 +1,8 @@
+tests/
+.github/
+.vitest-cache/
+coverage/
+vitest.config.ts
+tsup.config.ts
+CONTRIBUTING.md
+*.tsbuildinfo

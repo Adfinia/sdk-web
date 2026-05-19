@@ -1,0 +1,65 @@
+{
+  "name": "@adfinia/sdk-web",
+  "version": "0.1.0",
+  "description": "Official Adfinia SDK for web — first-party event + identify ingestion.",
+  "license": "MIT",
+  "author": "Infinia New Emerging Technologies <engineering@adfinia.com>",
+  "homepage": "https://github.com/infinia-net/adfinia-web-sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/infinia-net/adfinia-web-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/infinia-net/adfinia-web-sdk/issues"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/adfinia.iife.js",
+  "unpkg": "./dist/adfinia.iife.js",
+  "jsdelivr": "./dist/adfinia.iife.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "adfinia",
+    "analytics",
+    "events",
+    "tracking",
+    "cdp",
+    "identify",
+    "sdk"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "lint": "tsc --noEmit",
+    "size": "tsup && du -h dist/*.js dist/*.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "happy-dom": "^14.10.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false
+}

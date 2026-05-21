@@ -12,18 +12,25 @@ export interface Transport {
 }
 
 /**
- * Default HTTP transport. The platform's `/api/v1/identify` + `/api/v1/track`
- * endpoints are single-event today (see `api/api/openapi.yaml` §
- * AGENT-CDP-IDENTITY 2026-05-19) so we fan a buffered batch out into one
- * request per event with `Promise.all`. When the batch endpoints land we'll
- * switch to a single `{batch: [...]}` POST and drop the fan-out.
+ * Default HTTP transport.
  *
- * - identify events → POST /api/v1/identify
- * - track / page / screen / alias → POST /api/v1/track
+ * AGENT-SDK-INGEST-KAFKA (2026-05-21) — switched to the batch endpoints
+ * `/api/v1/track/batch` + `/api/v1/identify/batch`. The queue already
+ * batches up to 50 events; we now send them as a single batch request
+ * instead of fanning out into 50 parallel HTTP calls.
  *
- * Field-name translation happens here so the rest of the SDK can keep using
- * the SDK-native shape (`event` not `event_name`, `sent_at` not `occurred_at`,
- * etc.) without leaking the wire's quirks into the queue.
+ * Three send modes:
+ *
+ *   - All identify    → POST /api/v1/identify/batch
+ *   - All track/page/screen/alias → POST /api/v1/track/batch
+ *   - Mixed batch     → one batch per kind, in parallel
+ *
+ * Single-event fallback path: when the batch size is 1, we still hit
+ * the legacy single-event endpoint. That keeps offline-drain flushes
+ * (where the queue might trickle 1-3 events) from paying the batch
+ * overhead. The server side accepts both shapes.
+ *
+ * 2xx → ok; 4xx → permanent (drop); 5xx + network → retryable.
  */
 export class HttpTransport implements Transport {
   constructor(
@@ -39,9 +46,25 @@ export class HttpTransport implements Transport {
   async send(batch: AdfiniaPayload[]): Promise<TransportResult> {
     if (batch.length === 0) return { ok: true, permanent: false }
 
-    const results = await Promise.all(batch.map((p) => this.sendOne(p)))
+    // Single-event shortcut: skip the batch wrapper.
+    if (batch.length === 1) {
+      return this.sendSingle(batch[0])
+    }
 
-    // Worst result wins — if any send failed retryably, retry the whole batch.
+    // Partition into identify vs track-like.
+    const identifies: AdfiniaPayload[] = []
+    const tracks: AdfiniaPayload[] = []
+    for (const p of batch) {
+      if (p.type === 'identify') identifies.push(p)
+      else tracks.push(p)
+    }
+
+    const calls: Promise<TransportResult>[] = []
+    if (identifies.length > 0) calls.push(this.sendBatch('/api/v1/identify/batch', identifies.map(toIdentifyWire)))
+    if (tracks.length > 0) calls.push(this.sendBatch('/api/v1/track/batch', tracks.map(toTrackWire)))
+    const results = await Promise.all(calls)
+
+    // Worst result wins.
     let ok = true
     let permanent = false
     let status: number | undefined
@@ -55,7 +78,27 @@ export class HttpTransport implements Transport {
     return { ok, permanent, status }
   }
 
-  private async sendOne(payload: AdfiniaPayload): Promise<TransportResult> {
+  private async sendBatch(path: string, events: unknown[]): Promise<TransportResult> {
+    const url = `${this.host}${path}`
+    try {
+      const res = await this.fetcher(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${this.writeKey}`,
+        },
+        body: JSON.stringify({ events }),
+        keepalive: true,
+      })
+      if (res.ok) return { ok: true, permanent: false, status: res.status }
+      const permanent = res.status >= 400 && res.status < 500
+      return { ok: false, permanent, status: res.status }
+    } catch {
+      return { ok: false, permanent: false }
+    }
+  }
+
+  private async sendSingle(payload: AdfiniaPayload): Promise<TransportResult> {
     const path = payload.type === 'identify' ? '/api/v1/identify' : '/api/v1/track'
     const body = payload.type === 'identify' ? toIdentifyWire(payload) : toTrackWire(payload)
     const url = `${this.host}${path}`
@@ -67,15 +110,12 @@ export class HttpTransport implements Transport {
           authorization: `Bearer ${this.writeKey}`,
         },
         body: JSON.stringify(body),
-        // keepalive lets us flush during unload events on modern browsers.
         keepalive: true,
       })
       if (res.ok) return { ok: true, permanent: false, status: res.status }
-      // 4xx → permanent; 5xx + network → retry.
       const permanent = res.status >= 400 && res.status < 500
       return { ok: false, permanent, status: res.status }
     } catch {
-      // Network failure — retryable.
       return { ok: false, permanent: false }
     }
   }

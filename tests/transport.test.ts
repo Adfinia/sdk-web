@@ -14,13 +14,14 @@ function makeEvent(type: AdfiniaPayload['type'], event = 'e'): AdfiniaPayload {
 }
 
 describe('HttpTransport', () => {
-  it('POSTs track events to /api/v1/track with bearer auth', async () => {
+  it('POSTs a single track event to /api/v1/track with bearer auth', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
     const res = await t.send([makeEvent('track', 'Order Completed')])
     expect(res.ok).toBe(true)
     expect(fetcher).toHaveBeenCalledTimes(1)
     const [url, init] = fetcher.mock.calls[0]
+    // Single-event shortcut keeps using the legacy endpoint.
     expect(url).toBe('https://events.adfinia.com/api/v1/track')
     expect(init.method).toBe('POST')
     expect(init.headers.authorization).toBe('Bearer pk_test_x')
@@ -32,8 +33,26 @@ describe('HttpTransport', () => {
     expect(body.context.message_id).toBe('msg')
   })
 
-  it('routes identify events to /api/v1/identify', async () => {
-    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+  it('POSTs a multi-event track batch to /api/v1/track/batch as one request', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    const res = await t.send([
+      makeEvent('track', 'a'),
+      makeEvent('track', 'b'),
+      makeEvent('track', 'c'),
+    ])
+    expect(res.ok).toBe(true)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(url).toBe('https://events.adfinia.com/api/v1/track/batch')
+    const body = JSON.parse(init.body)
+    expect(Array.isArray(body.events)).toBe(true)
+    expect(body.events).toHaveLength(3)
+    expect(body.events.map((e: { event_name: string }) => e.event_name)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('partitions a mixed batch into one identify-batch + one track-batch call', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
     const identifyPayload: AdfiniaPayload = {
       type: 'identify',
@@ -44,20 +63,21 @@ describe('HttpTransport', () => {
       sent_at: new Date().toISOString(),
       message_id: 'msg',
     }
-    await t.send([makeEvent('track'), identifyPayload])
+    await t.send([makeEvent('track'), makeEvent('track', 'b'), identifyPayload])
     expect(fetcher).toHaveBeenCalledTimes(2)
     const urls = fetcher.mock.calls.map((c) => c[0])
-    expect(urls).toContain('https://events.adfinia.com/api/v1/track')
-    expect(urls).toContain('https://events.adfinia.com/api/v1/identify')
+    expect(urls).toContain('https://events.adfinia.com/api/v1/track/batch')
+    expect(urls).toContain('https://events.adfinia.com/api/v1/identify/batch')
     const identifyCall = fetcher.mock.calls.find(
-      (c) => c[0] === 'https://events.adfinia.com/api/v1/identify',
+      (c) => c[0] === 'https://events.adfinia.com/api/v1/identify/batch',
     )
     const identifyBody = JSON.parse(identifyCall![1].body)
-    expect(identifyBody.customer_id).toBe('cust_42')
-    expect(identifyBody.traits).toEqual({ plan: 'growth' })
+    expect(identifyBody.events).toHaveLength(1)
+    expect(identifyBody.events[0].customer_id).toBe('cust_42')
+    expect(identifyBody.events[0].traits).toEqual({ plan: 'growth' })
   })
 
-  it('synthesises an event name for page / screen / alias', async () => {
+  it('synthesises an event name for page / screen / alias in batch mode', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
     await t.send([
@@ -65,12 +85,14 @@ describe('HttpTransport', () => {
       { ...makeEvent('screen'), event: undefined },
       { ...makeEvent('alias'), event: undefined, previous_id: 'cust_old' },
     ])
-    const bodies = fetcher.mock.calls.map((c) => JSON.parse(c[1].body))
-    expect(bodies[0].event_name).toBe('$page_viewed')
-    expect(bodies[1].event_name).toBe('$screen_viewed')
-    expect(bodies[2].event_name).toBe('$alias')
-    // Alias carries previous_id in properties so the server's identity graph picks it up.
-    expect(bodies[2].properties.previous_id).toBe('cust_old')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(url).toBe('https://events.adfinia.com/api/v1/track/batch')
+    const body = JSON.parse(init.body)
+    expect(body.events[0].event_name).toBe('$page_viewed')
+    expect(body.events[1].event_name).toBe('$screen_viewed')
+    expect(body.events[2].event_name).toBe('$alias')
+    expect(body.events[2].properties.previous_id).toBe('cust_old')
   })
 
   it('returns permanent=true on 4xx', async () => {

@@ -1,4 +1,5 @@
 import type { AdfiniaPayload } from './types'
+import { SDK_VERSION_HEADER } from './version'
 
 export interface TransportResult {
   ok: boolean
@@ -86,6 +87,7 @@ export class HttpTransport implements Transport {
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${this.writeKey}`,
+          'x-adfinia-sdk-version': SDK_VERSION_HEADER,
         },
         body: JSON.stringify({ events }),
         keepalive: true,
@@ -108,6 +110,7 @@ export class HttpTransport implements Transport {
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${this.writeKey}`,
+          'x-adfinia-sdk-version': SDK_VERSION_HEADER,
         },
         body: JSON.stringify(body),
         keepalive: true,

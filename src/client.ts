@@ -12,6 +12,7 @@ import type {
   Traits,
 } from './types'
 import { uuidv7 } from './uuid'
+import { SDK_VERSION_HEADER } from './version'
 
 const DEFAULT_HOST = 'https://events.adfinia.com'
 const DEFAULT_FLUSH_AT = 50
@@ -83,6 +84,58 @@ export class AdfiniaClient {
     this.attachUnloadFlush()
     this.initialised = true
     this.debug('initialised', { host: this.config.host })
+
+    // Best-effort: pull per-tenant runtime config from the server. The
+    // server endpoint (GET /api/v1/sdk/config) returns batch_size /
+    // flush_interval_ms / sampling_rate / breaker thresholds; we apply
+    // the knobs we understand and ignore the rest (forward-compat: an
+    // older SDK never breaks because the server adds a new knob).
+    //
+    // Fire-and-forget — a config-fetch failure must not block events.
+    void this.fetchRemoteConfig()
+  }
+
+  /**
+   * Hits GET /api/v1/sdk/config and updates the queue's flush thresholds
+   * if the response disagrees with the local defaults. Soft-fails on any
+   * network / parse error — the client keeps running on its embedded
+   * defaults.
+   */
+  private async fetchRemoteConfig(): Promise<void> {
+    if (typeof globalThis.fetch !== 'function') return
+    try {
+      const res = await globalThis.fetch(`${this.config.host}/api/v1/sdk/config`, {
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${this.config.writeKey}`,
+          'x-adfinia-sdk-version': SDK_VERSION_HEADER,
+        },
+      })
+      if (!res.ok) {
+        // 426 → SDK too old. Log a single warning, keep running with
+        // local defaults — the server still accepts events from older
+        // versions until the cutoff lands.
+        if (res.status === 426) {
+          this.debug('sdk version is below the server-side minimum — please upgrade @adfinia/sdk-web')
+        }
+        return
+      }
+      const cfg = (await res.json()) as Partial<{
+        batch_size: number
+        flush_interval_ms: number
+        sampling_rate: number
+        breaker_open_threshold: number
+        breaker_cool_off_ms: number
+        api_host_override: string
+      }>
+      this.queue.applyRemoteConfig({
+        flushAt: cfg.batch_size,
+        flushIntervalMs: cfg.flush_interval_ms,
+      })
+      this.debug('remote config applied', cfg)
+    } catch (err) {
+      this.debug('remote config fetch failed — sticking with defaults', err)
+    }
   }
 
   identify(arg: IdentifyArg, maybeTraits?: Traits): void {

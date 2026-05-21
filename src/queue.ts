@@ -93,6 +93,30 @@ export class EventQueue {
   }
 
   /**
+   * Apply config knobs the server sent via GET /api/v1/sdk/config. Called
+   * fire-and-forget after init() — undefined fields keep the local value.
+   * Reschedules the next flush so a tighter interval takes effect right
+   * away instead of waiting for the current timer.
+   */
+  applyRemoteConfig(opts: { flushAt?: number; flushIntervalMs?: number }): void {
+    if (this.destroyed) return
+    let changed = false
+    if (typeof opts.flushAt === 'number' && opts.flushAt > 0 && opts.flushAt !== this.cfg.flushAt) {
+      this.cfg.flushAt = opts.flushAt
+      changed = true
+    }
+    if (
+      typeof opts.flushIntervalMs === 'number' &&
+      opts.flushIntervalMs > 0 &&
+      opts.flushIntervalMs !== this.cfg.flushIntervalMs
+    ) {
+      this.cfg.flushIntervalMs = opts.flushIntervalMs
+      changed = true
+    }
+    if (changed) this.scheduleNext()
+  }
+
+  /**
    * Final best-effort flush — used during page unload via `sendBeacon`.
    * Returns the buffered payloads so the caller can fire them with the
    * appropriate transport.

@@ -1,18 +1,23 @@
 /**
  * @adfinia/sdk-web — official Adfinia SDK for the browser.
  *
- * Usage:
+ * Usage (named import — recommended, matches the docs at
+ * https://docs.adfinia.com/user-guide/sdk-integration):
  *
- *   import Adfinia from '@adfinia/sdk-web'
+ *   import { Adfinia } from '@adfinia/sdk-web'
  *
  *   Adfinia.init({ writeKey: 'pk_live_...' })
  *   Adfinia.identify('cust_42', { plan: 'growth' })
  *   Adfinia.track('Order Completed', { total: 49.99 })
  *
- * Every public method is a thin pass-through to the underlying
- * `AdfiniaClient`. The default export is a singleton so consumers don't
- * have to manage instances; for multi-tenant server-side use, instantiate
- * `AdfiniaClient` directly.
+ * Default-import form (kept for backwards-compat with 1.0.0 consumers):
+ *
+ *   import Adfinia from '@adfinia/sdk-web'
+ *
+ * Every public method on `Adfinia` is a thin pass-through to the
+ * underlying `AdfiniaClient`. The singleton means consumers don't have
+ * to manage instances; for multi-tenant server-side use, instantiate
+ * `AdfiniaClient` directly (also exported).
  */
 import { AdfiniaClient } from './client'
 import type {
@@ -37,7 +42,16 @@ export { AdfiniaClient } from './client'
 
 const singleton = new AdfiniaClient()
 
-const Adfinia = {
+/**
+ * `Adfinia` is the singleton wrapper around `AdfiniaClient`. It is the
+ * primary public entry point and is documented at
+ * https://docs.adfinia.com/user-guide/sdk-integration.
+ *
+ * Exported as both a named export (`import { Adfinia } from '@adfinia/sdk-web'`)
+ * and the default export (`import Adfinia from '@adfinia/sdk-web'`). Both
+ * forms resolve to the same object — `Adfinia === (default export)` is `true`.
+ */
+export const Adfinia = {
   init(config: AdfiniaConfig): void {
     singleton.init(config)
   },

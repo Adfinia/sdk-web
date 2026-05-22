@@ -34,7 +34,7 @@ Or drop the IIFE bundle in via `<script>`:
 ## Quickstart
 
 ```ts
-import Adfinia from '@adfinia/sdk-web'
+import { Adfinia } from '@adfinia/sdk-web'
 
 Adfinia.init({
   writeKey: 'pk_live_your_public_key_here',
@@ -45,6 +45,10 @@ Adfinia.identify('cust_42', { plan: 'growth', country: 'AE' })
 Adfinia.track('Order Completed', { order_id: 'o_123', total: 49.99 })
 Adfinia.page('Pricing')
 ```
+
+> **Note on imports.** The named-import form above is the recommended shape and matches the [SDK integration guide](https://docs.adfinia.com/user-guide/sdk-integration#web). The default-import form `import Adfinia from '@adfinia/sdk-web'` is the legacy alias kept for backwards-compat with consumers who started against `1.0.0` (which only shipped the default export). Both forms resolve to the same singleton.
+>
+> For advanced cases that need their own client instance (multi-tenant SSR, isolated test contexts), import the underlying class: `import { AdfiniaClient } from '@adfinia/sdk-web'`.
 
 ---
 

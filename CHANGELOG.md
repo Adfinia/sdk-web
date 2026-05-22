@@ -4,6 +4,27 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.0.1] — 2026-05-22
+
+Patch release fixing two launch-day bugs reported against `1.0.0`.
+
+### Fixed
+- **`Adfinia` is now exported as a named export.** Every customer doc and
+  README example uses `import { Adfinia } from '@adfinia/sdk-web'`, but
+  `1.0.0` only shipped a default export — so `import { Adfinia }` was
+  `undefined` at runtime. `1.0.1` exports `Adfinia` both as the default
+  export and as a named export; both resolve to the exact same singleton.
+- **`package.json` repository metadata points at the live repo.** `1.0.0`
+  carried the legacy `infinia-net/adfinia-web-sdk` URLs in `repository`,
+  `homepage`, and `bugs`. The npm "Repository" link on
+  https://www.npmjs.com/package/@adfinia/sdk-web now resolves to
+  `https://github.com/Adfinia/sdk-web`.
+
+### Notes
+- No code-path / wire-format changes vs `1.0.0`. Drop-in upgrade.
+- `import Adfinia from '@adfinia/sdk-web'` (the form `1.0.0` shipped)
+  keeps working unchanged.
+
 ## [1.0.0] — 2026-05-22
 
 First stable release. Same content as the dev-internal-only

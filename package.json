@@ -1,16 +1,16 @@
 {
   "name": "@adfinia/sdk-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Official Adfinia SDK for web — first-party event + identify ingestion.",
   "license": "MIT",
   "author": "Infinia New Emerging Technologies <engineering@adfinia.com>",
-  "homepage": "https://github.com/infinia-net/adfinia-web-sdk",
+  "homepage": "https://github.com/Adfinia/sdk-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/infinia-net/adfinia-web-sdk.git"
+    "url": "git+https://github.com/Adfinia/sdk-web.git"
   },
   "bugs": {
-    "url": "https://github.com/infinia-net/adfinia-web-sdk/issues"
+    "url": "https://github.com/Adfinia/sdk-web/issues"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

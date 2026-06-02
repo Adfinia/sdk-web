@@ -22,7 +22,7 @@ yarn add @adfinia/sdk-web
 Or drop the IIFE bundle in via `<script>`:
 
 ```html
-<script src="https://cdn.adfinia.com/sdk-web/1.0.0/adfinia.iife.js"></script>
+<script src="https://cdn.adfinia.com/sdk-web/1.1.0/adfinia.iife.js"></script>
 <script>
   Adfinia.init({ writeKey: 'pk_live_...' })
   Adfinia.track('Page Viewed')
@@ -41,10 +41,45 @@ Adfinia.init({
   consent: () => window.__cookieBanner?.allowsAnalytics === true,
 })
 
-Adfinia.identify('cust_42', { plan: 'growth', country: 'AE' })
+Adfinia.identify('cust_42', {
+  email: 'ahmed@example.ae',
+  first_name: 'Ahmed',
+  language: 'en-AE',
+  country: 'AE',
+  city: 'Dubai',
+  source: 'sdk_web',
+  utm_source: 'google',
+  utm_campaign: 'ramadan_2026',
+})
 Adfinia.track('Order Completed', { order_id: 'o_123', total: 49.99 })
 Adfinia.page('Pricing')
 ```
+
+### `identify()` traits
+
+The full `IdentifyTraits` interface (added in `1.1.0`, mirrors the api
+`IdentifyTraits` contract) accepts the following optional fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `email` | `string` | Resolves to an `email` alias on the identity graph. |
+| `phone` | `string` | E.164. Resolves to a `phone` alias. |
+| `device_id` | `string` | Resolves to a `device_id` alias. |
+| `external_id` | `string` | Tenant-side CRM / external system ID. |
+| `first_name` / `last_name` | `string` | |
+| `language` | `string` | BCP 47 — e.g. `en-AE`, `ar-AE`, `hi-IN`. |
+| `timezone` | `string` | IANA — e.g. `Asia/Dubai`. |
+| `country` | `string` | ISO 3166-1 alpha-2 — e.g. `AE`. |
+| `city` | `string` | Free text. |
+| `whatsapp` | `string` | E.164. Separate channel from `phone`. |
+| `gender` | `'male' \| 'female' \| 'non_binary' \| 'prefer_not_to_say'` | |
+| `date_of_birth` | `string` | ISO 8601 date — `YYYY-MM-DD`. |
+| `source` | `IdentifySource` | Closed enum — see `src/types.ts`. Web defaults to `sdk_web` when callers omit it server-side. |
+| `utm_source` / `utm_medium` / `utm_campaign` / `utm_term` / `utm_content` | `string` | First-touch lands on contact creation; last-touch on every Identify carrying any UTM key. |
+| `extra` | `Record<string, string>` | Open-ended bag for tenant-specific custom fields. |
+
+Unset fields are omitted from the JSON body (never `null` / empty
+string); the server treats them as "leave existing value alone".
 
 > **Note on imports.** The named-import form above is the recommended shape and matches the [SDK integration guide](https://docs.adfinia.com/user-guide/sdk-integration#web). The default-import form `import Adfinia from '@adfinia/sdk-web'` is the legacy alias kept for backwards-compat with consumers who started against `1.0.0` (which only shipped the default export). Both forms resolve to the same singleton.
 >

@@ -127,4 +127,121 @@ describe('HttpTransport', () => {
     expect(res.ok).toBe(true)
     expect(fetcher).not.toHaveBeenCalled()
   })
+
+  // v1.1.0 — IdentifyTraits expansion. Asserts every new trait field
+  // round-trips through the single-event /api/v1/identify path verbatim,
+  // with snake_case keys preserved on the wire. Mirrors api
+  // `IdentifyTraits` v1.1 — keep in lockstep with
+  // api/internal/identity/models.go.
+  it('round-trips every v1.1.0 IdentifyTraits field on the wire (snake_case preserved)', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    const traits = {
+      email: 'ahmed@example.ae',
+      phone: '+971501234567',
+      whatsapp: '+971501234567',
+      first_name: 'Ahmed',
+      last_name: 'Al Hosani',
+      language: 'ar-AE',
+      timezone: 'Asia/Dubai',
+      country: 'AE',
+      city: 'Dubai',
+      gender: 'male',
+      date_of_birth: '1990-04-12',
+      source: 'sdk_web',
+      utm_source: 'google',
+      utm_medium: 'cpc',
+      utm_campaign: 'ramadan_2026',
+      utm_term: 'crm',
+      utm_content: 'hero_cta',
+    }
+    const payload: AdfiniaPayload = {
+      type: 'identify',
+      anonymous_id: 'anon',
+      customer_id: 'cust_42',
+      traits,
+      context: { library: { name: 'adfinia-sdk-web', version: 'test' } },
+      sent_at: new Date().toISOString(),
+      message_id: 'msg',
+    }
+    const res = await t.send([payload])
+    expect(res.ok).toBe(true)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(url).toBe('https://events.adfinia.com/api/v1/identify')
+    const body = JSON.parse(init.body)
+    expect(body.customer_id).toBe('cust_42')
+    expect(body.traits).toEqual(traits)
+  })
+
+  it('omits unset IdentifyTraits fields from the JSON body (no null / no empty string)', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    // Only two of the v1.1 fields are set — the rest must NOT appear in
+    // the JSON body, so the server's "empty means untouched" semantics
+    // work cleanly.
+    const traits = {
+      email: 'layla@example.ae',
+      country: 'AE',
+    }
+    const payload: AdfiniaPayload = {
+      type: 'identify',
+      anonymous_id: 'anon',
+      customer_id: 'cust_99',
+      traits,
+      context: { library: { name: 'adfinia-sdk-web', version: 'test' } },
+      sent_at: new Date().toISOString(),
+      message_id: 'msg',
+    }
+    await t.send([payload])
+    const [, init] = fetcher.mock.calls[0]
+    const body = JSON.parse(init.body)
+    const keys = Object.keys(body.traits).sort()
+    expect(keys).toEqual(['country', 'email'])
+    // Sanity-check absence of every unset v1.1 field.
+    for (const absent of [
+      'whatsapp',
+      'gender',
+      'date_of_birth',
+      'language',
+      'timezone',
+      'city',
+      'source',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'utm_term',
+      'utm_content',
+    ]) {
+      expect(Object.prototype.hasOwnProperty.call(body.traits, absent)).toBe(false)
+    }
+  })
+
+  it('round-trips IdentifyTraits in batch mode (snake_case preserved across all events)', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    const traitsA = { email: 'a@example.ae', utm_source: 'google', gender: 'female' as const }
+    const traitsB = {
+      email: 'b@example.ae',
+      date_of_birth: '1992-08-04',
+      source: 'sdk_web' as const,
+    }
+    const mkIdentify = (cust: string, traits: Record<string, unknown>): AdfiniaPayload => ({
+      type: 'identify',
+      anonymous_id: 'anon',
+      customer_id: cust,
+      traits,
+      context: { library: { name: 'adfinia-sdk-web', version: 'test' } },
+      sent_at: new Date().toISOString(),
+      message_id: `msg-${cust}`,
+    })
+    await t.send([mkIdentify('cust_a', traitsA), mkIdentify('cust_b', traitsB)])
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(url).toBe('https://events.adfinia.com/api/v1/identify/batch')
+    const body = JSON.parse(init.body)
+    expect(body.events).toHaveLength(2)
+    expect(body.events[0].traits).toEqual(traitsA)
+    expect(body.events[1].traits).toEqual(traitsB)
+  })
 })

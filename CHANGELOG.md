@@ -4,6 +4,30 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.1.0] — 2026-06-02
+
+### Added
+- `identify()` now accepts: `language`, `country`, `city`, `whatsapp`,
+  `gender`, `date_of_birth`, `source`, `utm_source`, `utm_medium`,
+  `utm_campaign`, `utm_term`, `utm_content` (mirrors api
+  `IdentifyTraits` v1.1). All fields are optional; the server treats
+  empty / omitted as "leave existing value alone".
+- New typed surface in `src/types.ts`: `IdentifyTraits` interface +
+  `IdentifySource` enum + `IdentifyGender` enum. The `Traits` type now
+  intersects the typed shape with `Record<string, unknown>`, so tenants
+  with custom contact fields keep their open-bag escape hatch.
+- `X-Adfinia-SDK-Version` header now reads `adfinia-sdk-web@1.1.0`.
+
+### Internal
+- No breaking changes — additive only. v1.0.x calls remain wire-compatible:
+  every existing field name + JSON shape is unchanged, the new keys are
+  pure additions, and unset fields are still omitted from the JSON body
+  (not serialised as `null`).
+- Field keys on the wire stay snake_case throughout, matching the api's
+  `IdentifyTraits` JSON tags exactly. Pass-through in `transport.ts` is
+  unchanged — the typed surface guides callers, the wire payload is
+  identical to whatever the caller supplied.
+
 ## [1.0.1] — 2026-05-22
 
 Patch release fixing two launch-day bugs reported against `1.0.0`.

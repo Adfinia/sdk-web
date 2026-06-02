@@ -1,4 +1,4 @@
-import type { AdfiniaPayload } from './types'
+import type { AdfiniaPayload, Traits } from './types'
 import { SDK_VERSION_HEADER } from './version'
 
 export interface TransportResult {
@@ -127,7 +127,11 @@ export class HttpTransport implements Transport {
 interface IdentifyWire {
   customer_id?: string
   anonymous_id?: string
-  traits?: Record<string, unknown>
+  // `Traits` is a union of the typed IdentifyTraits + a generic record
+  // for tenants with custom contact-field schemas. JSON.stringify
+  // happily serialises either shape, and unset typed-fields are omitted
+  // (never `null`).
+  traits?: Traits
   context?: Record<string, string>
 }
 

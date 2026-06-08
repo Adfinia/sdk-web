@@ -28,7 +28,7 @@ describe('EventQueue', () => {
     const send = vi.fn().mockResolvedValue({ ok: true, permanent: false })
     const q = new EventQueue({
       store: createStorage(),
-      transport: { send },
+      transport: { send, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 2,
       flushIntervalMs: 60_000,
       debug: () => {},
@@ -45,7 +45,7 @@ describe('EventQueue', () => {
     const send = vi.fn().mockResolvedValue({ ok: true, permanent: false })
     const q = new EventQueue({
       store: createStorage(),
-      transport: { send },
+      transport: { send, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 100,
       flushIntervalMs: 5_000,
       debug: () => {},
@@ -60,7 +60,7 @@ describe('EventQueue', () => {
     const send = vi.fn().mockResolvedValue({ ok: false, permanent: true, status: 400 })
     const q = new EventQueue({
       store: createStorage(),
-      transport: { send },
+      transport: { send, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 100, // don't auto-trigger; we want to control the flush.
       flushIntervalMs: 60_000,
       debug: () => {},
@@ -81,7 +81,7 @@ describe('EventQueue', () => {
     })
     const q = new EventQueue({
       store: createStorage(),
-      transport: { send },
+      transport: { send, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 1,
       flushIntervalMs: 60_000,
       debug: () => {},
@@ -103,7 +103,7 @@ describe('EventQueue', () => {
     const sendNever = vi.fn().mockResolvedValue({ ok: false, permanent: false })
     const q1 = new EventQueue({
       store,
-      transport: { send: sendNever },
+      transport: { send: sendNever, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 100,
       flushIntervalMs: 60_000,
       debug: () => {},
@@ -115,7 +115,7 @@ describe('EventQueue', () => {
     const sendOk = vi.fn().mockResolvedValue({ ok: true, permanent: false })
     const q2 = new EventQueue({
       store,
-      transport: { send: sendOk },
+      transport: { send: sendOk, sendBeacon: () => {}, postJSON: async () => ({ ok: true, permanent: false }) },
       flushAt: 100,
       flushIntervalMs: 5_000,
       debug: () => {},
@@ -128,7 +128,11 @@ describe('EventQueue', () => {
   it('caps the queue at maxQueueSize and drops oldest', () => {
     const q = new EventQueue({
       store: createStorage(),
-      transport: { send: () => Promise.resolve({ ok: false, permanent: false }) },
+      transport: {
+        send: () => Promise.resolve({ ok: false, permanent: false }),
+        sendBeacon: () => {},
+        postJSON: async () => ({ ok: true, permanent: false }),
+      },
       flushAt: 1000,
       flushIntervalMs: 60_000,
       maxQueueSize: 3,

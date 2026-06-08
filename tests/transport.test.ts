@@ -33,6 +33,40 @@ describe('HttpTransport', () => {
     expect(body.context.message_id).toBe('msg')
   })
 
+  it('emits external_id on the wire for track + identify', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    const trackEv: AdfiniaPayload = { ...makeEvent('track', 'order_placed'), external_id: '0xWALLET' }
+    await t.send([trackEv])
+    const trackBody = JSON.parse(fetcher.mock.calls[0][1].body)
+    expect(trackBody.external_id).toBe('0xWALLET')
+
+    fetcher.mockClear()
+    const idEv: AdfiniaPayload = {
+      type: 'identify',
+      anonymous_id: 'anon',
+      external_id: '0xWALLET',
+      context: { library: { name: 'adfinia-sdk-web', version: 'test' } },
+      sent_at: new Date().toISOString(),
+      message_id: 'msg',
+    }
+    await t.send([idEv])
+    const idBody = JSON.parse(fetcher.mock.calls[0][1].body)
+    expect(idBody.external_id).toBe('0xWALLET')
+  })
+
+  it('postJSON POSTs an authenticated JSON body to a host-relative path', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 201 })
+    const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+    const res = await t.postJSON('/api/v1/push/subscriptions', { endpoint: 'https://push/x' })
+    expect(res.ok).toBe(true)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(url).toBe('https://events.adfinia.com/api/v1/push/subscriptions')
+    expect(init.method).toBe('POST')
+    expect(init.headers.authorization).toBe('Bearer pk_test_x')
+    expect(JSON.parse(init.body).endpoint).toBe('https://push/x')
+  })
+
   it('POSTs a multi-event track batch to /api/v1/track/batch as one request', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
@@ -126,5 +160,86 @@ describe('HttpTransport', () => {
     const res = await t.send([])
     expect(res.ok).toBe(true)
     expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  describe('sendBeacon (unload path)', () => {
+    it('prefers navigator.sendBeacon and routes the write key + sdk version on the URL', () => {
+      const beacon = vi.fn().mockReturnValue(true)
+      const originalNavigator = globalThis.navigator
+      // happy-dom gives us a navigator; just patch sendBeacon on it.
+      ;(globalThis as unknown as { navigator: unknown }).navigator = {
+        ...(originalNavigator ?? {}),
+        sendBeacon: beacon,
+      }
+      const fetcher = vi.fn()
+      const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+      t.sendBeacon([makeEvent('track', 'a'), makeEvent('track', 'b')])
+      expect(beacon).toHaveBeenCalledTimes(1)
+      const [url, body] = beacon.mock.calls[0]
+      expect(String(url)).toContain('https://events.adfinia.com/api/v1/track/batch')
+      expect(String(url)).toContain('auth=pk_test_x')
+      expect(String(url)).toContain('sdk=')
+      expect(body).toBeInstanceOf(Blob)
+      // No fetch fallback when beacon returns true.
+      expect(fetcher).not.toHaveBeenCalled()
+      ;(globalThis as unknown as { navigator: unknown }).navigator = originalNavigator
+    })
+
+    it('falls back to fetch({ keepalive: true }) when sendBeacon returns false', () => {
+      const beacon = vi.fn().mockReturnValue(false)
+      const originalNavigator = globalThis.navigator
+      ;(globalThis as unknown as { navigator: unknown }).navigator = {
+        ...(originalNavigator ?? {}),
+        sendBeacon: beacon,
+      }
+      const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
+      const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+      t.sendBeacon([makeEvent('track', 'a')])
+      expect(beacon).toHaveBeenCalledTimes(1)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      const [, init] = fetcher.mock.calls[0]
+      expect(init.keepalive).toBe(true)
+      ;(globalThis as unknown as { navigator: unknown }).navigator = originalNavigator
+    })
+
+    it('partitions identify vs track into separate beacon URLs', () => {
+      const beacon = vi.fn().mockReturnValue(true)
+      const originalNavigator = globalThis.navigator
+      ;(globalThis as unknown as { navigator: unknown }).navigator = {
+        ...(originalNavigator ?? {}),
+        sendBeacon: beacon,
+      }
+      const identifyPayload: AdfiniaPayload = {
+        type: 'identify',
+        anonymous_id: 'anon',
+        customer_id: 'cust_42',
+        context: { library: { name: 'adfinia-sdk-web', version: 'test' } },
+        sent_at: new Date().toISOString(),
+        message_id: 'msg',
+      }
+      const fetcher = vi.fn()
+      const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+      t.sendBeacon([makeEvent('track', 'a'), identifyPayload])
+      expect(beacon).toHaveBeenCalledTimes(2)
+      const urls = beacon.mock.calls.map((c) => String(c[0]))
+      expect(urls.some((u) => u.includes('/api/v1/track/batch'))).toBe(true)
+      expect(urls.some((u) => u.includes('/api/v1/identify/batch'))).toBe(true)
+      ;(globalThis as unknown as { navigator: unknown }).navigator = originalNavigator
+    })
+
+    it('no-ops on empty batch', () => {
+      const beacon = vi.fn().mockReturnValue(true)
+      const originalNavigator = globalThis.navigator
+      ;(globalThis as unknown as { navigator: unknown }).navigator = {
+        ...(originalNavigator ?? {}),
+        sendBeacon: beacon,
+      }
+      const fetcher = vi.fn()
+      const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
+      t.sendBeacon([])
+      expect(beacon).not.toHaveBeenCalled()
+      expect(fetcher).not.toHaveBeenCalled()
+      ;(globalThis as unknown as { navigator: unknown }).navigator = originalNavigator
+    })
   })
 })

@@ -1,10 +1,11 @@
 # @adfinia/sdk-web
 
-Adfinia Web SDK — event + identify ingest for browser apps. Under 11 KB minified for the IIFE bundle; tree-shakes to under 8 KB gzipped in modern bundlers.
+Adfinia Web SDK — event + identify ingest for browser apps. Around 19.5 KB minified for the IIFE bundle (~6 KB gzipped); tree-shakes further in modern bundlers.
 
 - Tiny: ESM, CJS, and `<script>`-friendly IIFE builds.
-- Reliable: events buffer to `localStorage` and survive page reloads, crashes, and offline windows.
+- Reliable: events buffer to `localStorage` and survive page reloads, crashes, and offline windows. Last-mile delivery uses `navigator.sendBeacon` on tab close so the final batch lands even when the page is unloading.
 - Consent-aware: opt-out by default until your consent callback says yes.
+- Privacy-first context: browser context (page, viewport, locale, referrer, user-agent) is **opt-in** via `autoContext: true`. Default OFF.
 - Typed: full TypeScript types exported.
 
 ---
@@ -58,12 +59,14 @@ Adfinia.page('Pricing')
 |--------|-------|
 | `Adfinia.init(config)` | One-shot. Subsequent calls are ignored. |
 | `Adfinia.identify(customerId, traits?)` | Customer-id form. |
-| `Adfinia.track(event, properties?)` | Event name + properties. |
-| `Adfinia.page(name?, properties?)` | Page view. Auto-captures URL/title/referrer if no args. |
-| `Adfinia.screen(name?, properties?)` | Parity hook for mobile SDKs; identical to `page()` on web. |
+| `Adfinia.identify({ customerId, externalId?, anonymousId?, traits?, context? })` | Object form. `externalId` is a tenant-owned stable id (e.g. wallet hash). `context` is merged on top of auto-context. |
+| `Adfinia.track(event, properties?, { context?, externalId? }?)` | Event name + properties + per-call context / external id. |
+| `Adfinia.page(name?, properties?, { context?, externalId? }?)` | Page view. Auto-captures URL/title/referrer if no args. |
+| `Adfinia.screen(name?, properties?, { context?, externalId? }?)` | Parity hook for mobile SDKs; identical to `page()` on web. |
 | `Adfinia.alias(newId, previousId?)` | Link the anonymous session to a known customer. |
-| `Adfinia.reset()` | Logout — mints a new anonymous_id. |
-| `Adfinia.flush()` | Promise — drains the in-memory queue. |
+| `Adfinia.reset()` | Logout — mints a new anonymous_id and clears external_id. |
+| `Adfinia.flush()` | Promise — drains the queue and resolves when the in-flight batch settles. Use before a critical navigation. |
+| `Adfinia.registerWebPush({ vapidPublicKey, ... })` | Promise — registers a web-push subscription (service worker + permission + PushManager). See [Web push](#web-push). |
 
 ### `AdfiniaConfig`
 
@@ -73,9 +76,108 @@ Adfinia.page('Pricing')
 | `host` | `string` | `https://events.adfinia.com` | Override for self-hosted ingress. |
 | `debug` | `boolean` | `false` | Log SDK internals to `console.debug`. |
 | `consent` | `() => boolean` | undefined | Consent gate. Returning `false` drops events silently. |
+| `autoContext` | `boolean` | `false` | Opt in to automatic browser-context enrichment (page_path, page_url, referrer, user_agent, locale, timezone, viewport, screen_resolution) **plus first-touch acquisition** (UTM tags, ad click IDs, landing page). Off by default — privacy-first. |
+| `autoPage` | `boolean` | `true` | Auto-fire `page()` on load + SPA route change (pushState/replaceState/popstate). Set `false` to wire page views by hand. |
 | `flushAt` | `number` | `50` | Flush immediately once N events are buffered. |
 | `flushIntervalMs` | `number` | `5000` | Otherwise, flush every N ms. |
 | `maxQueueSize` | `number` | `1000` | Oldest events drop when this fills up. |
+
+### Browser context: `autoContext`
+
+By default the SDK ships only library identifiers + the message envelope. To enrich every event with browser context, opt in:
+
+```ts
+Adfinia.init({
+  writeKey: 'pk_live_…',
+  autoContext: true, // collect page_path, page_url, referrer, user_agent, locale, timezone, viewport, screen_resolution
+})
+```
+
+Per-call context wins on key collision:
+
+```ts
+Adfinia.track('Order Completed', { total: 49.99 }, {
+  context: { experiment_variant: 'checkout_v3' },
+})
+```
+
+The auto-context keys map 1:1 to the server's `context map[string]string` contract. Caller-supplied context is layered on last, so anything you pass in `{ context }` always overrides what the SDK auto-collects.
+
+### External identity (`external_id`)
+
+Pass a tenant-owned stable identifier — a wallet hash, a CRM key, anything you control — as `externalId`. It's persisted client-side and emitted on the wire as `external_id`. The server resolves identity in the order `customer_id > external_id > anonymous_id`.
+
+```ts
+// At wallet connect / login:
+Adfinia.identify({ externalId: walletAddress, traits: { country: 'AE' } })
+
+// Or per call, before you have a full identify:
+Adfinia.track('wallet_connected', { is_new_wallet: true }, { externalId: walletAddress })
+```
+
+Once set (via `identify` or a per-call option), `external_id` rides every subsequent event automatically until `reset()`.
+
+### Acquisition (first-touch attribution)
+
+When `autoContext: true`, the SDK reads acquisition signals from the **first** session URL and persists them — later events keep the original attribution even after the query string is gone:
+
+- UTM tags: `utm_source / utm_medium / utm_campaign / utm_term / utm_content` → `campaign.utm_*`
+- Ad click IDs: `gclid / fbclid / ttclid / sc / msclkid` → `campaign.*`
+- Landing page → `page.landing`
+
+No code beyond `autoContext: true` — land the user with `?utm_source=google&gclid=…` and the attribution sticks for the whole session.
+
+### Auto page tracking (SPAs)
+
+By default (`autoPage: true`) the SDK fires `page()` on the initial load and on every SPA route change — it hooks `history.pushState`, `history.replaceState`, and `popstate`, de-duped by path+search so you never get a double-fire. Hash-only changes don't count as a new page.
+
+```ts
+Adfinia.init({ writeKey: 'pk_live_…' }) // page views are automatic
+
+// Wiring them by hand instead? Turn it off:
+Adfinia.init({ writeKey: 'pk_live_…', autoPage: false })
+router.afterEach(() => Adfinia.page())
+```
+
+### Web push
+
+`Adfinia.registerWebPush(config)` runs the full browser opt-in: register a service worker, request Notification permission, `PushManager.subscribe` with your tenant VAPID public key, and POST the subscription to Adfinia. It also emits `notification_permission_prompted/granted/denied` track events.
+
+```ts
+const result = await Adfinia.registerWebPush({
+  vapidPublicKey: 'BEl62iUY…',     // tenant VAPID public key (base64url P-256)
+  serviceWorkerUrl: '/adfinia-sw.js', // default; host this at your web root
+})
+if (result.ok) {
+  console.log('subscribed', result.endpoint)
+} else {
+  console.log('not subscribed —', result.reason) // 'permission_denied' | 'unsupported' | …
+}
+```
+
+**Service worker hosting.** The service worker **must** be served from your web root (a SW only controls pages at or below its own URL). Copy it from the package after install:
+
+```bash
+cp node_modules/@adfinia/sdk-web/dist/adfinia-sw.js ./public/adfinia-sw.js
+```
+
+The worker shows the notification and emits `push_received` / `push_clicked` back to Adfinia. If you serve it from a sub-path, set the `Service-Worker-Allowed` response header and pass `scope` to `registerWebPush`.
+
+> **VAPID key.** Get your tenant VAPID public key from the Adfinia console (Settings → Channels → Push). You can pass it as `vapidPublicKey`, or set `fetchVapidFromConfig: true` to have the SDK pull it from `/sdk/config` (requires server support for that field).
+>
+> **iOS.** Web push works on Android + desktop Chrome/Firefox/Edge today. iOS Safari 16.4+ supports web push only for home-screen-added PWAs — lead with email/SMS there.
+
+### Last-mile delivery on unload
+
+On tab close / hide, the SDK drains the queue via `navigator.sendBeacon` (with a `fetch({ keepalive: true })` fallback). This survives the unloading page so the final batch reliably reaches the server. The auth + SDK-version travel as query params on the beacon URL because `sendBeacon` can't set custom headers — the gateway accepts both forms.
+
+For navigations you control, prefer the explicit `await Adfinia.flush()`:
+
+```ts
+Adfinia.track('CTA Clicked', { cta: 'upgrade' })
+await Adfinia.flush()
+router.push('/upgrade')
+```
 
 ---
 
@@ -93,12 +195,13 @@ Full consent-architecture write-up: [docs.adfinia.com/user-guide/consent](https:
 
 | Format | File | Raw size | Use when |
 |--------|------|----------|----------|
-| ESM | `dist/index.js` | ~18 KB | Bundler-driven apps (Next.js, Vite, Webpack). Tree-shakes to under 8 KB gzipped. |
-| CJS | `dist/index.cjs` | ~18 KB | Node.js + legacy bundlers. |
-| IIFE | `dist/adfinia.iife.js` | ~11 KB | Direct `<script>` include, CDN drop-in, Google Tag Manager. |
-| Types | `dist/index.d.ts` | ~6 KB | TypeScript autocomplete + type-checking. |
+| ESM | `dist/index.js` | ~36 KB | Bundler-driven apps (Next.js, Vite, Webpack). Tree-shakes to ~10 KB gzipped. |
+| CJS | `dist/index.cjs` | ~36 KB | Node.js + legacy bundlers. |
+| IIFE | `dist/adfinia.iife.js` | ~19.5 KB | Direct `<script>` include, CDN drop-in, Google Tag Manager. |
+| SW | `dist/adfinia-sw.js` | ~3.5 KB | Web-push service worker. Host at your web root (not bundled). |
+| Types | `dist/index.d.ts` | ~16 KB | TypeScript autocomplete + type-checking. |
 
-Sizes are pre-gzip. The IIFE bundle exposes `window.Adfinia` and self-bootstraps — no `import` needed.
+Sizes are pre-gzip; the IIFE bundle gzips to roughly 6 KB on the wire. The IIFE bundle exposes `window.Adfinia` and self-bootstraps — no `import` needed.
 
 ---
 

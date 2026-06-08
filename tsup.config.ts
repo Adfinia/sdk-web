@@ -1,3 +1,4 @@
+import { copyFileSync } from 'node:fs'
 import { defineConfig } from 'tsup'
 
 export default defineConfig([
@@ -28,6 +29,12 @@ export default defineConfig([
     footer: {
       // Hoist the default export onto window.Adfinia for <script> users.
       js: 'if(typeof window!=="undefined"){window.Adfinia=Adfinia.default||Adfinia;}',
+    },
+    // Copy the web-push service worker into dist so consumers can host it
+    // from node_modules/@adfinia/sdk-web/dist/adfinia-sw.js. The SW is a
+    // standalone script (must be served from the web root), never bundled.
+    async onSuccess() {
+      copyFileSync('src/service-worker/adfinia-sw.js', 'dist/adfinia-sw.js')
     },
   },
 ])

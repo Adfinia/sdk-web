@@ -50,7 +50,10 @@ jobs:
         run: |
           set -e
           SIZE=$(stat -c%s dist/adfinia.iife.js 2>/dev/null || stat -f%z dist/adfinia.iife.js)
-          MAX=15000
+          # Budget bumped 15000 -> 24000 for v1.2.0: web-push client, first-touch
+          # acquisition capture, auto-page, and external_id identity add ~5.5 KB
+          # raw (~2 KB gzipped). Still under 8 KB on the wire after gzip.
+          MAX=24000
           echo "IIFE bundle: $SIZE bytes (max $MAX)"
           if [ "$SIZE" -gt "$MAX" ]; then
             echo "::error::IIFE bundle exceeded $MAX bytes"

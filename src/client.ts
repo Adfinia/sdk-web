@@ -1,4 +1,4 @@
-import { buildContext } from './context'
+import { buildAutoContext, buildContext, firstTouchAcquisition } from './context'
 import { IdentityStore } from './identity'
 import { EventQueue } from './queue'
 import { createStorage, type KVStore } from './storage'
@@ -6,6 +6,7 @@ import { HttpTransport, type Transport } from './transport'
 import type {
   AdfiniaConfig,
   AdfiniaPayload,
+  CallOptions,
   ConsentFn,
   IdentifyArg,
   Properties,
@@ -35,7 +36,7 @@ export interface ClientHooks {
  */
 export class AdfiniaClient {
   private config!: Required<Omit<AdfiniaConfig, 'storage' | 'consent'>> &
-    Pick<AdfiniaConfig, 'storage'> & { consent?: ConsentFn }
+    Pick<AdfiniaConfig, 'storage'> & { consent?: ConsentFn; autoContext: boolean; autoPage: boolean }
   private identityStore!: IdentityStore
   private queue!: EventQueue
   private transport!: Transport
@@ -43,6 +44,10 @@ export class AdfiniaClient {
   private now: () => Date
   private initialised = false
   private unloadHandler: (() => void) | null = null
+  /** Last path+search auto-page() fired for — guards against double-fire. */
+  private lastAutoPageUrl: string | null = null
+  /** Restores the patched history methods on teardown (tests). */
+  private restoreHistory: (() => void) | null = null
 
   constructor(private hooks: ClientHooks = {}) {
     this.now = hooks.now ?? (() => new Date())
@@ -65,6 +70,10 @@ export class AdfiniaClient {
       flushIntervalMs: config.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL,
       flushAt: config.flushAt ?? DEFAULT_FLUSH_AT,
       maxQueueSize: config.maxQueueSize ?? 1000,
+      autoContext: !!config.autoContext,
+      // Default ON in a browser; opt-out via autoPage: false. Off when
+      // there's no History API (Node / SSR).
+      autoPage: config.autoPage ?? true,
       storage: config.storage,
     }
 
@@ -84,6 +93,14 @@ export class AdfiniaClient {
     this.attachUnloadFlush()
     this.initialised = true
     this.debug('initialised', { host: this.config.host })
+
+    // Auto page-view tracking — fires once on load, then on SPA route
+    // changes. Must run AFTER initialised = true so the first page() isn't
+    // dropped by the guard. No-op when autoPage is off or there's no
+    // History API.
+    if (this.config.autoPage) {
+      this.attachAutoPage()
+    }
 
     // Best-effort: pull per-tenant runtime config from the server. The
     // server endpoint (GET /api/v1/sdk/config) returns batch_size /
@@ -141,64 +158,75 @@ export class AdfiniaClient {
   identify(arg: IdentifyArg, maybeTraits?: Traits): void {
     if (!this.guard('identify')) return
     let customerId: string | undefined
+    let externalId: string | undefined
     let anonymousId: string | undefined
     let traits: Traits | undefined
+    let userContext: Record<string, string> | undefined
 
     if (typeof arg === 'string') {
       customerId = arg
       traits = maybeTraits
     } else if (arg && typeof arg === 'object') {
       customerId = arg.customerId
+      externalId = arg.externalId
       anonymousId = arg.anonymousId
       traits = arg.traits ?? maybeTraits
+      userContext = arg.context
     }
 
-    this.identityStore.identify(customerId, traits, anonymousId)
+    this.identityStore.identify(customerId, traits, anonymousId, externalId)
     this.enqueue({
       type: 'identify',
       customer_id: this.identityStore.customerId(),
+      external_id: this.identityStore.externalId(),
       anonymous_id: this.identityStore.anonymousId(),
       traits: this.identityStore.traits(),
-    })
+    }, userContext)
   }
 
-  track(event: string, properties?: Properties): void {
+  track(event: string, properties?: Properties, options?: CallOptions): void {
     if (!this.guard('track')) return
     if (!event || typeof event !== 'string') {
       this.debug('track() called without an event name — dropped')
       return
     }
+    this.identityStore.setExternalId(options?.externalId)
     this.enqueue({
       type: 'track',
       event,
       customer_id: this.identityStore.customerId(),
+      external_id: this.identityStore.externalId(),
       anonymous_id: this.identityStore.anonymousId(),
       properties,
-    })
+    }, options?.context)
   }
 
-  page(name?: string, properties?: Properties): void {
+  page(name?: string, properties?: Properties, options?: CallOptions): void {
     if (!this.guard('page')) return
+    this.identityStore.setExternalId(options?.externalId)
     this.enqueue({
       type: 'page',
       event: name,
       customer_id: this.identityStore.customerId(),
+      external_id: this.identityStore.externalId(),
       anonymous_id: this.identityStore.anonymousId(),
       properties,
-    })
+    }, options?.context)
   }
 
-  screen(name?: string, properties?: Properties): void {
+  screen(name?: string, properties?: Properties, options?: CallOptions): void {
     // Web SDK exposes screen() for API parity with the mobile/RN SDKs;
     // on the web it behaves identically to page().
     if (!this.guard('screen')) return
+    this.identityStore.setExternalId(options?.externalId)
     this.enqueue({
       type: 'screen',
       event: name,
       customer_id: this.identityStore.customerId(),
+      external_id: this.identityStore.externalId(),
       anonymous_id: this.identityStore.anonymousId(),
       properties,
-    })
+    }, options?.context)
   }
 
   alias(newId: string, previousId?: string): void {
@@ -211,6 +239,7 @@ export class AdfiniaClient {
     this.enqueue({
       type: 'alias',
       customer_id: newId,
+      external_id: this.identityStore.externalId(),
       anonymous_id: this.identityStore.anonymousId(),
       previous_id: prev,
     })
@@ -224,9 +253,52 @@ export class AdfiniaClient {
     this.debug('identity reset — new anonymous_id minted')
   }
 
+  /**
+   * Drain the in-memory + persisted queue to the server.
+   *
+   * Returns a Promise that resolves once the in-flight batch settles (ok or
+   * permanent drop). Use this before a critical navigation to maximise the
+   * chance the last events land:
+   *
+   *     await Adfinia.flush()
+   *     router.push('/checkout/confirmation')
+   *
+   * The Promise rejects only if the underlying transport throws — network
+   * failures surface as a transient retry inside the queue, not a rejection.
+   */
   async flush(): Promise<void> {
     if (!this.initialised) return
     await this.queue.flush()
+  }
+
+  /**
+   * Internal accessor used by the web-push module. Surfaces the bits the
+   * subscription flow needs without widening the public surface:
+   * the authenticated transport, the current identity, the host (for an
+   * optional /sdk/config VAPID fetch), the write key, a track() shim, and
+   * the debug logger. Returns null before init().
+   */
+  _webPushBridge(): {
+    transport: Transport
+    host: string
+    writeKey: string
+    identity: () => { customer_id?: string; external_id?: string; anonymous_id: string }
+    track: (event: string, properties?: Properties) => void
+    debug: (msg: string, extra?: unknown) => void
+  } | null {
+    if (!this.initialised) return null
+    return {
+      transport: this.transport,
+      host: this.config.host,
+      writeKey: this.config.writeKey,
+      identity: () => ({
+        customer_id: this.identityStore.customerId(),
+        external_id: this.identityStore.externalId(),
+        anonymous_id: this.identityStore.anonymousId(),
+      }),
+      track: (event, properties) => this.track(event, properties),
+      debug: (msg, extra) => this.debug(msg, extra),
+    }
   }
 
   /** Internal — exposed for tests. */
@@ -239,14 +311,36 @@ export class AdfiniaClient {
     return this.queue.drainAll().length
   }
 
-  private enqueue(partial: Omit<AdfiniaPayload, 'context' | 'sent_at' | 'message_id'>): void {
+  private enqueue(
+    partial: Omit<
+      AdfiniaPayload,
+      'context' | 'sent_at' | 'message_id' | 'auto_context' | 'user_context'
+    >,
+    userContext?: Record<string, string>,
+  ): void {
     const payload: AdfiniaPayload = {
       ...partial,
       context: buildContext(),
+      auto_context: this.config.autoContext ? this.autoContextWithAcquisition() : undefined,
+      user_context: userContext,
       sent_at: this.now().toISOString(),
       message_id: uuidv7(),
     }
     this.queue.enqueue(payload)
+  }
+
+  /**
+   * Browser auto-context + first-touch acquisition, merged. Acquisition
+   * (campaign.* + page.landing) layers UNDER the live browser fields so a
+   * collision (there shouldn't be one — disjoint key spaces) resolves to the
+   * live value. Both still sit under the user_context layer applied by the
+   * transport, so a caller's `{ context }` always wins.
+   */
+  private autoContextWithAcquisition(): Record<string, string> {
+    const base = buildAutoContext()
+    const acq = firstTouchAcquisition(this.storage)
+    if (!acq) return base
+    return { ...acq, ...base }
   }
 
   private guard(label: string): boolean {
@@ -275,18 +369,104 @@ export class AdfiniaClient {
   }
 
   private attachUnloadFlush(): void {
-    // Best-effort flush on page hide. We use `visibilitychange` (the modern
-    // recommendation) and fall back to `pagehide` for Safari.
+    // Drain via `navigator.sendBeacon` on tab close / hide. This is the only
+    // delivery path that reliably survives a closing tab — `fetch()` with
+    // `keepalive: true` is the documented fallback when sendBeacon isn't
+    // available (Node tests, very old browsers, or sendBeacon refusing the
+    // payload).
+    //
+    // We listen for both `visibilitychange === 'hidden'` (modern Safari +
+    // Chrome — fires when the user switches tabs / minimises / closes) and
+    // `pagehide` (the back-compat path that fires on actual unload). Either
+    // path is idempotent: a second beacon with an empty queue is a no-op.
     if (typeof document === 'undefined' || typeof window === 'undefined') return
+
     this.unloadHandler = () => {
-      void this.queue.flush()
+      // Drain everything the queue is currently holding — both the in-memory
+      // buffer and any persisted backlog. The queue clears its store on
+      // drainAll(), so a follow-up visibilitychange won't re-fire stale
+      // events.
+      const pending = this.queue.drainAll()
+      if (pending.length === 0) return
+      try {
+        this.transport.sendBeacon(pending)
+      } catch (err) {
+        this.debug('sendBeacon failed — events on the unload path may be lost', err)
+      }
     }
+
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         this.unloadHandler?.()
       }
     })
     window.addEventListener('pagehide', () => this.unloadHandler?.())
+  }
+
+  /**
+   * Auto page-view tracking for SPAs. Fires `page()` on:
+   *
+   *   - initial load (once, synchronously on init),
+   *   - `history.pushState` / `history.replaceState` (monkey-patched),
+   *   - `popstate` (back/forward).
+   *
+   * De-dupes by path+search: a navigation that lands on the same path+search
+   * the SDK already fired for is ignored (covers replaceState no-ops and a
+   * pushState immediately followed by a popstate to the same URL). Hash-only
+   * changes are NOT counted as a new page.
+   */
+  private attachAutoPage(): void {
+    if (
+      typeof window === 'undefined' ||
+      typeof history === 'undefined' ||
+      typeof history.pushState !== 'function'
+    ) {
+      return
+    }
+
+    const fire = () => {
+      const url = this.currentPathSearch()
+      if (url === this.lastAutoPageUrl) return
+      this.lastAutoPageUrl = url
+      this.page()
+    }
+
+    // Initial load.
+    fire()
+
+    const origPush = history.pushState.bind(history)
+    const origReplace = history.replaceState.bind(history)
+
+    history.pushState = (...args: Parameters<History['pushState']>) => {
+      const ret = origPush(...args)
+      fire()
+      return ret
+    }
+    history.replaceState = (...args: Parameters<History['replaceState']>) => {
+      const ret = origReplace(...args)
+      fire()
+      return ret
+    }
+
+    const onPop = () => fire()
+    window.addEventListener('popstate', onPop)
+
+    this.restoreHistory = () => {
+      history.pushState = origPush
+      history.replaceState = origReplace
+      window.removeEventListener('popstate', onPop)
+    }
+  }
+
+  private currentPathSearch(): string {
+    if (typeof window === 'undefined' || !window.location) return ''
+    return (window.location.pathname || '') + (window.location.search || '')
+  }
+
+  /** Internal — tear down history patches + listeners. Exposed for tests. */
+  _teardownAutoPage(): void {
+    this.restoreHistory?.()
+    this.restoreHistory = null
   }
 }
 

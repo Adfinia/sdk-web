@@ -20,8 +20,10 @@
  * `AdfiniaClient` directly (also exported).
  */
 import { AdfiniaClient } from './client'
+import { WebPush, type WebPushConfig, type WebPushSubscribeResult } from './webpush'
 import type {
   AdfiniaConfig,
+  CallOptions,
   IdentifyArg,
   Properties,
   Traits,
@@ -32,11 +34,14 @@ export type {
   AdfiniaContext,
   AdfiniaIdentity,
   AdfiniaPayload,
+  CallOptions,
   ConsentFn,
   IdentifyArg,
   Properties,
   Traits,
 } from './types'
+
+export type { WebPushConfig, WebPushSubscribeResult } from './webpush'
 
 export { AdfiniaClient } from './client'
 
@@ -58,14 +63,14 @@ export const Adfinia = {
   identify(arg: IdentifyArg, traits?: Traits): void {
     singleton.identify(arg, traits)
   },
-  track(event: string, properties?: Properties): void {
-    singleton.track(event, properties)
+  track(event: string, properties?: Properties, options?: CallOptions): void {
+    singleton.track(event, properties, options)
   },
-  page(name?: string, properties?: Properties): void {
-    singleton.page(name, properties)
+  page(name?: string, properties?: Properties, options?: CallOptions): void {
+    singleton.page(name, properties, options)
   },
-  screen(name?: string, properties?: Properties): void {
-    singleton.screen(name, properties)
+  screen(name?: string, properties?: Properties, options?: CallOptions): void {
+    singleton.screen(name, properties, options)
   },
   alias(newId: string, previousId?: string): void {
     singleton.alias(newId, previousId)
@@ -75,6 +80,15 @@ export const Adfinia = {
   },
   async flush(): Promise<void> {
     await singleton.flush()
+  },
+  /**
+   * Register a browser web-push subscription for the current identity and
+   * POST it to the Adfinia ingest. Requires a service worker + a tenant
+   * VAPID public key. See {@link WebPushConfig}. Resolves with the
+   * subscription result, or a reason when the browser/permission blocks it.
+   */
+  async registerWebPush(config: WebPushConfig): Promise<WebPushSubscribeResult> {
+    return WebPush.subscribe(singleton, config)
   },
   /**
    * Escape hatch for advanced use cases that need a private instance

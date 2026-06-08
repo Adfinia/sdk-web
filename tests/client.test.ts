@@ -5,10 +5,19 @@ import { clearStorage } from './helpers'
 
 class CapturingTransport {
   sent: AdfiniaPayload[] = []
+  beaconed: AdfiniaPayload[] = []
+  posted: { path: string; body: unknown }[] = []
   result = { ok: true, permanent: false }
   async send(batch: AdfiniaPayload[]) {
     this.sent.push(...batch)
     return this.result
+  }
+  async postJSON(path: string, body: unknown) {
+    this.posted.push({ path, body })
+    return { ok: true, permanent: false }
+  }
+  sendBeacon(batch: AdfiniaPayload[]) {
+    this.beaconed.push(...batch)
   }
 }
 
@@ -37,7 +46,7 @@ describe('AdfiniaClient', () => {
   it('track() enqueues an event with the right shape', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
     c.track('Order Completed', { total: 49.99 })
     await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
     const ev = transport.sent[0]
@@ -52,7 +61,7 @@ describe('AdfiniaClient', () => {
   it('identify(string) sets customer_id and emits an identify event', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
     c.identify('cust_42', { plan: 'growth' })
     await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
     expect(transport.sent[0].type).toBe('identify')
@@ -63,7 +72,7 @@ describe('AdfiniaClient', () => {
   it('identify({customerId, traits}) accepts the object form', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
     c.identify({ customerId: 'cust_99', traits: { tier: 'enterprise' } })
     await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
     expect(transport.sent[0].customer_id).toBe('cust_99')
@@ -73,7 +82,7 @@ describe('AdfiniaClient', () => {
   it('subsequent track() carries the customer_id from identify()', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 2, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 2, flushIntervalMs: 60_000 })
     c.identify('cust_42')
     c.track('Order Completed')
     await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
@@ -83,7 +92,7 @@ describe('AdfiniaClient', () => {
   it('alias() emits an alias event and updates the active identity', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
     c.alias('cust_new', 'cust_old')
     await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
     expect(transport.sent[0].type).toBe('alias')
@@ -106,7 +115,7 @@ describe('AdfiniaClient', () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
     let consented = false
-    c.init({ writeKey: 'pk_test_x', consent: () => consented, flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, consent: () => consented, flushAt: 1, flushIntervalMs: 60_000 })
     c.track('Order Completed')
     // Buffer should be empty — event was dropped.
     await vi.advanceTimersByTimeAsync(100)
@@ -134,7 +143,7 @@ describe('AdfiniaClient', () => {
   it('track() without an event name is a no-op', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
     // @ts-expect-error testing runtime guard
     c.track(undefined)
     await vi.advanceTimersByTimeAsync(100)
@@ -153,11 +162,164 @@ describe('AdfiniaClient', () => {
   it('flush() triggers transport on demand', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', flushAt: 100, flushIntervalMs: 60_000 })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 100, flushIntervalMs: 60_000 })
     c.track('a')
     c.track('b')
     expect(transport.sent).toHaveLength(0)
     await c.flush()
     expect(transport.sent).toHaveLength(2)
+  })
+
+  it('autoContext: false (default) does not attach auto_context', async () => {
+    const transport = new CapturingTransport()
+    const c = new AdfiniaClient({ transport })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    c.track('a')
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    expect(transport.sent[0].auto_context).toBeUndefined()
+  })
+
+  it('autoContext: true attaches a flat auto_context map', async () => {
+    const transport = new CapturingTransport()
+    const c = new AdfiniaClient({ transport })
+    c.init({ writeKey: 'pk_test_x', autoContext: true, autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    c.track('a')
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    const ac = transport.sent[0].auto_context
+    expect(ac).toBeDefined()
+    expect(ac?.library).toBe('adfinia-sdk-web')
+    // library_version is a plain string, no semver-shape assertion
+    expect(typeof ac?.library_version).toBe('string')
+  })
+
+  it('autoContext true folds first-touch acquisition into auto_context', async () => {
+    const transport = new CapturingTransport()
+    const c = new AdfiniaClient({ transport })
+    window.location.href = 'http://localhost:3000/?utm_source=google&gclid=G42'
+    c.init({ writeKey: 'pk_test_x', autoContext: true, autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    c.track('a')
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    const ac = transport.sent[0].auto_context
+    expect(ac?.['campaign.utm_source']).toBe('google')
+    expect(ac?.['campaign.gclid']).toBe('G42')
+    window.location.href = 'http://localhost:3000/'
+  })
+
+  it('track() options.context wins over auto-context on collision', async () => {
+    const transport = new CapturingTransport()
+    const c = new AdfiniaClient({ transport })
+    c.init({ writeKey: 'pk_test_x', autoContext: true, autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    c.track('a', undefined, { context: { library: 'override' } })
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    expect(transport.sent[0].user_context).toEqual({ library: 'override' })
+  })
+
+  it('identify({ context }) is forwarded as user_context', async () => {
+    const transport = new CapturingTransport()
+    const c = new AdfiniaClient({ transport })
+    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    c.identify({ customerId: 'cust_42', context: { tenant: 'acme' } })
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    expect(transport.sent[0].user_context).toEqual({ tenant: 'acme' })
+  })
+
+  describe('external_id / wallet identity', () => {
+    it('identify({ externalId }) persists + emits external_id on the wire', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      c.identify({ externalId: '0xWALLETHASH' })
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      expect(transport.sent[0].type).toBe('identify')
+      expect(transport.sent[0].external_id).toBe('0xWALLETHASH')
+      expect(c._identityStore().externalId()).toBe('0xWALLETHASH')
+    })
+
+    it('external_id from identify carries onto subsequent track events', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 2, flushIntervalMs: 60_000 })
+      c.identify({ customerId: 'cust_1', externalId: '0xABC' })
+      c.track('order_placed')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+      expect(transport.sent[1].external_id).toBe('0xABC')
+      expect(transport.sent[1].customer_id).toBe('cust_1')
+    })
+
+    it('track() accepts a per-call externalId, persists it, and emits it', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 2, flushIntervalMs: 60_000 })
+      c.track('wallet_connected', undefined, { externalId: '0xDEF' })
+      c.track('order_placed')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+      expect(transport.sent[0].external_id).toBe('0xDEF')
+      // Persisted — second track keeps it without re-passing.
+      expect(transport.sent[1].external_id).toBe('0xDEF')
+    })
+
+    it('reset() clears the external_id', () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false })
+      c.identify({ externalId: '0xWALLET' })
+      expect(c._identityStore().externalId()).toBe('0xWALLET')
+      c.reset()
+      expect(c._identityStore().externalId()).toBeUndefined()
+    })
+  })
+
+  describe('autoPage (SPA route tracking)', () => {
+    // happy-dom does NOT update window.location on history.pushState, so the
+    // tests set window.location.href to simulate the navigation, then invoke
+    // pushState — mirroring the real-browser order (location changes, then
+    // the patched pushState's fire() reads the new location).
+    afterEach(() => {
+      window.location.href = 'http://localhost:3000/'
+    })
+
+    it('fires an initial page() on init when autoPage is on (default)', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      window.location.href = 'http://localhost:3000/start'
+      c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      expect(transport.sent[0].type).toBe('page')
+      c._teardownAutoPage()
+    })
+
+    it('does NOT fire on init when autoPage: false', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      await vi.advanceTimersByTimeAsync(100)
+      expect(transport.sent).toHaveLength(0)
+    })
+
+    it('fires page() on pushState navigation', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      window.location.href = 'http://localhost:3000/home'
+      c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1)) // initial
+      window.location.href = 'http://localhost:3000/match/42'
+      window.history.pushState({}, '', '/match/42')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+      expect(transport.sent[1].type).toBe('page')
+      c._teardownAutoPage()
+    })
+
+    it('does not double-fire when navigating to the same path+search', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      window.location.href = 'http://localhost:3000/same'
+      c.init({ writeKey: 'pk_test_x', flushAt: 1, flushIntervalMs: 60_000 })
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      // pushState to the identical URL — should be ignored (location unchanged).
+      window.history.pushState({}, '', '/same')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(transport.sent).toHaveLength(1)
+      c._teardownAutoPage()
+    })
   })
 })

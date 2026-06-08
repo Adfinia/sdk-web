@@ -30,6 +30,7 @@ describe('public exports', () => {
       'alias',
       'reset',
       'flush',
+      'registerWebPush',
       'createClient',
     ] as const) {
       expect(typeof (Adfinia as Record<string, unknown>)[method]).toBe('function')

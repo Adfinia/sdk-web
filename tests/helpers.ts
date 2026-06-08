@@ -1,7 +1,7 @@
 // Test helpers — happy-dom's localStorage doesn't expose `clear()` reliably,
 // so we remove the known SDK keys directly between tests.
 
-const KEYS = ['adfinia:identity', 'adfinia:queue']
+const KEYS = ['adfinia:identity', 'adfinia:queue', 'adfinia:acquisition', 'adfinia:webpush']
 
 export function clearStorage(): void {
   if (typeof localStorage === 'undefined') return

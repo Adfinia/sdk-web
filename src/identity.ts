@@ -43,16 +43,37 @@ export class IdentityStore {
     return this.state.customerId
   }
 
+  externalId(): string | undefined {
+    return this.state.externalId
+  }
+
   traits(): Traits | undefined {
     return this.state.traits
   }
 
-  identify(customerId?: string, traits?: Traits, anonymousId?: string): void {
+  identify(
+    customerId?: string,
+    traits?: Traits,
+    anonymousId?: string,
+    externalId?: string,
+  ): void {
     this.state = {
       anonymousId: anonymousId ?? this.state.anonymousId,
       customerId: customerId ?? this.state.customerId,
+      externalId: externalId ?? this.state.externalId,
       traits: mergeTraits(this.state.traits, traits),
     }
+    this.persist(this.state)
+  }
+
+  /**
+   * Record an external identity from a per-call option (track/page) without
+   * the full identify() ceremony. Persists it so later calls keep emitting
+   * it. No-op when externalId is falsy or already current.
+   */
+  setExternalId(externalId?: string): void {
+    if (!externalId || externalId === this.state.externalId) return
+    this.state = { ...this.state, externalId }
     this.persist(this.state)
   }
 

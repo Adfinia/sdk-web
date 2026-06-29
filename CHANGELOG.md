@@ -4,6 +4,28 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.3.1] — 2026-06-29
+
+Patch release. No public-surface change — every existing call site compiles
+and behaves identically.
+
+### Fixed — always batch (correct test/live tagging)
+- The transport no longer falls back to the legacy single-event endpoints
+  (`POST /api/v1/track`, `POST /api/v1/identify`) when a flush carries exactly
+  one event. Every flush now goes to the batch endpoints
+  (`/api/v1/track/batch`, `/api/v1/identify/batch`) as a 1-element
+  `{events:[…]}`.
+- Why: the server's single-event `/track` path does NOT stamp the event's
+  environment from the authenticating API key — it defaults to `live` unless
+  the caller supplies `context.environment`. So singleton drains from a
+  `adf_test_*` key were mis-tagged `environment=live` and leaked into live
+  analytics. The batch endpoints stamp environment from the API key
+  (`middleware.GetAPIKeyEnvironment`), so routing everything through them makes
+  test/live tagging correct and consistent. The single-event endpoints are
+  also deprecated server-side (`Deprecation: prefer-batch` response header).
+- `sdk-react-native@1.0.1` ships the identical fix; the two transports are
+  kept in lockstep.
+
 ## [1.3.0] — 2026-06-08
 
 Feature release. Reunites the v1.1.0 `identify()` trait expansion (which had

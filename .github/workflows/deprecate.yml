@@ -1,0 +1,46 @@
+# Deprecate a published @adfinia/sdk-web version on npm.
+#
+# Trigger: manual (workflow_dispatch). Runs `npm deprecate` server-side
+# with the same NPM_TOKEN the publish workflow uses, so no maintainer
+# needs local npm credentials for the @adfinia scope.
+#
+# To clear a deprecation, run again with an empty message.
+
+name: Deprecate Web SDK version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Exact version to deprecate (e.g. 1.2.0)'
+        required: true
+        type: string
+      message:
+        description: 'Deprecation message (empty string clears it)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    name: Deprecate on npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Deprecate version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NPM_TOKEN secret is not set — cannot deprecate."
+            exit 1
+          fi
+          npm deprecate "@adfinia/sdk-web@${{ inputs.version }}" "${{ inputs.message }}"
+          echo "Deprecated @adfinia/sdk-web@${{ inputs.version }}"

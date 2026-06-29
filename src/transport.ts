@@ -44,10 +44,15 @@ export interface Transport {
  *   - All track/page/screen/alias → POST /api/v1/track/batch
  *   - Mixed batch     → one batch per kind, in parallel
  *
- * Single-event fallback path: when the batch size is 1, we still hit
- * the legacy single-event endpoint. That keeps offline-drain flushes
- * (where the queue might trickle 1-3 events) from paying the batch
- * overhead. The server side accepts both shapes.
+ * ALWAYS batches — even a single event ships as a 1-element `{events:[…]}`
+ * to the batch endpoint. The legacy single-event endpoints (`/api/v1/track`,
+ * `/api/v1/identify`) are deprecated server-side (they emit a
+ * `Deprecation: prefer-batch` header) and, critically, the single-event
+ * `/track` path does NOT stamp the event's environment from the API key —
+ * so a `adf_test_*` key's singleton drains were mis-tagged `live`. Routing
+ * every flush through the batch endpoints keeps test/live tagging correct
+ * and consistent. (sdk-react-native carries the identical fix — keep the two
+ * transports in lockstep.)
  *
  * 2xx → ok; 4xx → permanent (drop); 5xx + network → retryable.
  */
@@ -65,12 +70,9 @@ export class HttpTransport implements Transport {
   async send(batch: AdfiniaPayload[]): Promise<TransportResult> {
     if (batch.length === 0) return { ok: true, permanent: false }
 
-    // Single-event shortcut: skip the batch wrapper.
-    if (batch.length === 1) {
-      return this.sendSingle(batch[0])
-    }
-
-    // Partition into identify vs track-like.
+    // Partition into identify vs track-like. Single events ride the same
+    // batch endpoints (1-element `{events:[…]}`) — see the class doc for why
+    // the legacy single-event endpoints are no longer used.
     const identifies: AdfiniaPayload[] = []
     const tracks: AdfiniaPayload[] = []
     for (const p of batch) {
@@ -108,29 +110,6 @@ export class HttpTransport implements Transport {
           'x-adfinia-sdk-version': SDK_VERSION_HEADER,
         },
         body: JSON.stringify({ events }),
-        keepalive: true,
-      })
-      if (res.ok) return { ok: true, permanent: false, status: res.status }
-      const permanent = res.status >= 400 && res.status < 500
-      return { ok: false, permanent, status: res.status }
-    } catch {
-      return { ok: false, permanent: false }
-    }
-  }
-
-  private async sendSingle(payload: AdfiniaPayload): Promise<TransportResult> {
-    const path = payload.type === 'identify' ? '/api/v1/identify' : '/api/v1/track'
-    const body = payload.type === 'identify' ? toIdentifyWire(payload) : toTrackWire(payload)
-    const url = `${this.host}${path}`
-    try {
-      const res = await this.fetcher(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.writeKey}`,
-          'x-adfinia-sdk-version': SDK_VERSION_HEADER,
-        },
-        body: JSON.stringify(body),
         keepalive: true,
       })
       if (res.ok) return { ok: true, permanent: false, status: res.status }

@@ -14,23 +14,27 @@ function makeEvent(type: AdfiniaPayload['type'], event = 'e'): AdfiniaPayload {
 }
 
 describe('HttpTransport', () => {
-  it('POSTs a single track event to /api/v1/track with bearer auth', async () => {
+  it('POSTs a single track event to /api/v1/track/batch with bearer auth', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
     const res = await t.send([makeEvent('track', 'Order Completed')])
     expect(res.ok).toBe(true)
     expect(fetcher).toHaveBeenCalledTimes(1)
     const [url, init] = fetcher.mock.calls[0]
-    // Single-event shortcut keeps using the legacy endpoint.
-    expect(url).toBe('https://events.adfinia.com/api/v1/track')
+    // A single event now ships as a 1-element batch — the legacy single-event
+    // endpoint is no longer used (it mis-tags test/live; see transport doc).
+    expect(url).toBe('https://events.adfinia.com/api/v1/track/batch')
     expect(init.method).toBe('POST')
     expect(init.headers.authorization).toBe('Bearer pk_test_x')
     const body = JSON.parse(init.body)
-    expect(body.event_name).toBe('Order Completed')
-    expect(body.anonymous_id).toBe('anon')
-    expect(body.occurred_at).toBeTruthy()
-    expect(body.context['library.name']).toBe('adfinia-sdk-web')
-    expect(body.context.message_id).toBe('msg')
+    expect(Array.isArray(body.events)).toBe(true)
+    expect(body.events).toHaveLength(1)
+    const ev = body.events[0]
+    expect(ev.event_name).toBe('Order Completed')
+    expect(ev.anonymous_id).toBe('anon')
+    expect(ev.occurred_at).toBeTruthy()
+    expect(ev.context['library.name']).toBe('adfinia-sdk-web')
+    expect(ev.context.message_id).toBe('msg')
   })
 
   it('emits external_id on the wire for track + identify', async () => {
@@ -39,7 +43,7 @@ describe('HttpTransport', () => {
     const trackEv: AdfiniaPayload = { ...makeEvent('track', 'order_placed'), external_id: '0xWALLET' }
     await t.send([trackEv])
     const trackBody = JSON.parse(fetcher.mock.calls[0][1].body)
-    expect(trackBody.external_id).toBe('0xWALLET')
+    expect(trackBody.events[0].external_id).toBe('0xWALLET')
 
     fetcher.mockClear()
     const idEv: AdfiniaPayload = {
@@ -52,7 +56,7 @@ describe('HttpTransport', () => {
     }
     await t.send([idEv])
     const idBody = JSON.parse(fetcher.mock.calls[0][1].body)
-    expect(idBody.external_id).toBe('0xWALLET')
+    expect(idBody.events[0].external_id).toBe('0xWALLET')
   })
 
   it('postJSON POSTs an authenticated JSON body to a host-relative path', async () => {
@@ -163,10 +167,9 @@ describe('HttpTransport', () => {
   })
 
   // v1.1.0 — IdentifyTraits expansion. Asserts every new trait field
-  // round-trips through the single-event /api/v1/identify path verbatim,
-  // with snake_case keys preserved on the wire. Mirrors api
-  // `IdentifyTraits` v1.1 — keep in lockstep with
-  // api/internal/identity/models.go.
+  // round-trips through the /api/v1/identify/batch path verbatim, with
+  // snake_case keys preserved on the wire. Mirrors api `IdentifyTraits` v1.1
+  // — keep in lockstep with api/internal/identity/models.go.
   it('round-trips every v1.1.0 IdentifyTraits field on the wire (snake_case preserved)', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
@@ -202,10 +205,10 @@ describe('HttpTransport', () => {
     expect(res.ok).toBe(true)
     expect(fetcher).toHaveBeenCalledTimes(1)
     const [url, init] = fetcher.mock.calls[0]
-    expect(url).toBe('https://events.adfinia.com/api/v1/identify')
+    expect(url).toBe('https://events.adfinia.com/api/v1/identify/batch')
     const body = JSON.parse(init.body)
-    expect(body.customer_id).toBe('cust_42')
-    expect(body.traits).toEqual(traits)
+    expect(body.events[0].customer_id).toBe('cust_42')
+    expect(body.events[0].traits).toEqual(traits)
   })
 
   it('omits unset IdentifyTraits fields from the JSON body (no null / no empty string)', async () => {
@@ -230,7 +233,8 @@ describe('HttpTransport', () => {
     await t.send([payload])
     const [, init] = fetcher.mock.calls[0]
     const body = JSON.parse(init.body)
-    const keys = Object.keys(body.traits).sort()
+    const sentTraits = body.events[0].traits
+    const keys = Object.keys(sentTraits).sort()
     expect(keys).toEqual(['country', 'email'])
     // Sanity-check absence of every unset v1.1 field.
     for (const absent of [
@@ -247,7 +251,7 @@ describe('HttpTransport', () => {
       'utm_term',
       'utm_content',
     ]) {
-      expect(Object.prototype.hasOwnProperty.call(body.traits, absent)).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(sentTraits, absent)).toBe(false)
     }
   })
 

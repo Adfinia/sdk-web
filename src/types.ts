@@ -142,7 +142,7 @@ export interface AdfiniaConfig {
   writeKey: string
 
   /**
-   * Override the ingest host. Defaults to `https://events.adfinia.com`.
+   * Override the ingest host. Defaults to `https://api.adfinia.com`.
    * Self-hosted tenants point this at their own ingress.
    */
   host?: string

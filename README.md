@@ -108,7 +108,7 @@ string); the server treats them as "leave existing value alone".
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `writeKey` | `string` | — | **Required.** Tenant write-only public key (`pk_live_…` / `pk_test_…`). |
-| `host` | `string` | `https://events.adfinia.com` | Override for self-hosted ingress. |
+| `host` | `string` | `https://api.adfinia.com` | Override for self-hosted ingress. |
 | `debug` | `boolean` | `false` | Log SDK internals to `console.debug`. |
 | `consent` | `() => boolean` | undefined | Consent gate. Returning `false` drops events silently. |
 | `autoContext` | `boolean` | `false` | Opt in to automatic browser-context enrichment (page_path, page_url, referrer, user_agent, locale, timezone, viewport, screen_resolution) **plus first-touch acquisition** (UTM tags, ad click IDs, landing page). Off by default — privacy-first. |

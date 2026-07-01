@@ -4,6 +4,21 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.3.2] — 2026-07-01
+
+Patch release. No public-surface change; existing call sites compile and
+behave identically unless they relied on the (broken) default host.
+
+### Fixed — default ingest host points at a host that exists
+- `init()` now defaults `host` to `https://api.adfinia.com` (was
+  `https://events.adfinia.com`, which is not a provisioned domain, so every
+  event failed at DNS resolution and was swallowed silently by the transport's
+  catch-all). Integrators no longer need to pass `host` to reach production.
+- Callers who already set `host` explicitly are unaffected.
+- Aligns web with the React Native SDK, which already defaulted to
+  `api.adfinia.com`; iOS and Android are being brought in line in their own
+  releases.
+
 ## [1.3.1] — 2026-06-29
 
 Patch release. No public-surface change — every existing call site compiles

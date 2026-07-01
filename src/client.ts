@@ -15,7 +15,7 @@ import type {
 import { uuidv7 } from './uuid'
 import { SDK_VERSION_HEADER } from './version'
 
-const DEFAULT_HOST = 'https://events.adfinia.com'
+const DEFAULT_HOST = 'https://api.adfinia.com'
 const DEFAULT_FLUSH_AT = 50
 const DEFAULT_FLUSH_INTERVAL = 5_000
 

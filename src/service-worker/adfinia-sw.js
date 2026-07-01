@@ -24,7 +24,7 @@
  *     "title": "...", "body": "...", "icon": "...", "url": "...",
  *     "tag": "...",
  *     "adfinia": {
- *       "ingest": "https://events.adfinia.com",   // ingest host
+ *       "ingest": "https://api.adfinia.com",   // ingest host
  *       "write_key": "pk_live_...",               // tenant write key
  *       "anonymous_id": "...", "external_id": "...", "customer_id": "...",
  *       "campaign_id": "...", "journey_id": "...", "message_id": "..."

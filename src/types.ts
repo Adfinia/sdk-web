@@ -248,7 +248,10 @@ export type IdentifyArg =
 
 /** Internal event shape, written to the wire. */
 export interface AdfiniaPayload {
-  type: 'track' | 'identify' | 'page' | 'screen' | 'alias'
+  // Note: `alias` was removed as a payload type in 1.4.0. alias() is now a
+  // deprecated no-op (no server-side handler), so no alias event is ever
+  // produced. See CHANGELOG.md [1.4.0].
+  type: 'track' | 'identify' | 'page' | 'screen'
   event?: string
   customer_id?: string
   /**
@@ -258,7 +261,6 @@ export interface AdfiniaPayload {
    */
   external_id?: string
   anonymous_id: string
-  previous_id?: string
   properties?: Properties
   traits?: Traits
   context: AdfiniaContext

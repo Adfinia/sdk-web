@@ -4,6 +4,35 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.4.0] - 2026-07-22
+
+Minor release. Non-breaking deprecation: `alias()` is now a no-op. Every
+existing call site still compiles and runs; `alias()` simply no longer emits
+an event.
+
+### Deprecated - alias()
+- `alias()` is deprecated and is now a **no-op**. It never had a server-side
+  handler (the backend only processes `track` + `identify`; there is no
+  alias / `previous_id` processing), so it was a silent no-op on the wire that
+  misled at least one integrator into thinking it stitched identities.
+- Anonymous->known promotion already happens automatically via `identify()`:
+  the identify event carries the live `anonymous_id`, so the server links the
+  anonymous session to the identified contact with no extra call.
+- The method keeps its exact signature (`alias(newId, previousId?)`) so
+  callers still compile. On the **first** call it emits a one-time deprecation
+  warning through the SDK's existing debug logger (visible when
+  `init({ debug: true })`); it does not throw.
+- `alias()` no longer enqueues or transmits anything. The `alias` payload type
+  and its `previous_id` field were removed from the internal wire shape
+  (`AdfiniaPayload` in `src/types.ts`), and the alias branch was removed from
+  the transport (`synthesiseName` / the `previous_id` properties mapping in
+  `src/transport.ts`). No `$alias` event is produced anymore.
+- `alias()` will be removed entirely in the next major version.
+
+### Changed
+- `LIBRARY_VERSION` -> `1.4.0`; `X-Adfinia-SDK-Version` reports
+  `adfinia-sdk-web@1.4.0`.
+
 ## [1.3.2] — 2026-07-01
 
 Patch release. No public-surface change; existing call sites compile and

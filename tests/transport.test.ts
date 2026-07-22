@@ -115,13 +115,12 @@ describe('HttpTransport', () => {
     expect(identifyBody.events[0].traits).toEqual({ plan: 'growth' })
   })
 
-  it('synthesises an event name for page / screen / alias in batch mode', async () => {
+  it('synthesises an event name for page / screen in batch mode', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 202 })
     const t = new HttpTransport('https://events.adfinia.com', 'pk_test_x', fetcher)
     await t.send([
       { ...makeEvent('page'), event: undefined },
       { ...makeEvent('screen'), event: undefined },
-      { ...makeEvent('alias'), event: undefined, previous_id: 'cust_old' },
     ])
     expect(fetcher).toHaveBeenCalledTimes(1)
     const [url, init] = fetcher.mock.calls[0]
@@ -129,8 +128,6 @@ describe('HttpTransport', () => {
     const body = JSON.parse(init.body)
     expect(body.events[0].event_name).toBe('$page_viewed')
     expect(body.events[1].event_name).toBe('$screen_viewed')
-    expect(body.events[2].event_name).toBe('$alias')
-    expect(body.events[2].properties.previous_id).toBe('cust_old')
   })
 
   it('returns permanent=true on 4xx', async () => {

@@ -41,7 +41,7 @@ export interface Transport {
  * Three send modes:
  *
  *   - All identify    → POST /api/v1/identify/batch
- *   - All track/page/screen/alias → POST /api/v1/track/batch
+ *   - All track/page/screen -> POST /api/v1/track/batch
  *   - Mixed batch     → one batch per kind, in parallel
  *
  * ALWAYS batches — even a single event ships as a 1-element `{events:[…]}`
@@ -250,10 +250,10 @@ function toTrackWire(p: AdfiniaPayload): TrackWire {
     customer_id: p.customer_id,
     external_id: p.external_id,
     anonymous_id: p.anonymous_id,
-    // For page/screen/alias the event name may be empty — fall back to a
+    // For page/screen the event name may be empty; fall back to a
     // synthetic name so the server's `event_name` required field is satisfied.
     event_name: p.event || synthesiseName(p),
-    properties: mergeProperties(p),
+    properties: p.properties,
     context: stringifyContext(p),
     occurred_at: p.sent_at,
   }
@@ -265,20 +265,9 @@ function synthesiseName(p: AdfiniaPayload): string {
       return '$page_viewed'
     case 'screen':
       return '$screen_viewed'
-    case 'alias':
-      return '$alias'
     default:
       return '$unknown'
   }
-}
-
-function mergeProperties(p: AdfiniaPayload): Record<string, unknown> | undefined {
-  // For alias events, carry the previous_id in properties so the server can
-  // pick it up under the SDK-side identity-graph contract.
-  if (p.type === 'alias' && p.previous_id) {
-    return { ...(p.properties ?? {}), previous_id: p.previous_id }
-  }
-  return p.properties
 }
 
 /**

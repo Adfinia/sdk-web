@@ -89,6 +89,93 @@ describe('AdfiniaClient', () => {
     expect(transport.sent[1].customer_id).toBe('cust_42')
   })
 
+  describe('consent (setConsent / optIn / optOut)', () => {
+    it('optOut(single) emits one consent_updated event with channels as an array', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      c.optOut('email')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      const ev = transport.sent[0]
+      expect(ev.type).toBe('track')
+      expect(ev.event).toBe('consent_updated')
+      expect(ev.properties).toEqual({ channels: ['email'], status: 'opted_out' })
+    })
+
+    it('optIn(array) normalizes (trim + lowercase) and keeps channels an array', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      c.optIn(['  Email ', 'WhatsApp', 'SMS'])
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      expect(transport.sent[0].event).toBe('consent_updated')
+      expect(transport.sent[0].properties).toEqual({
+        channels: ['email', 'whatsapp', 'sms'],
+        status: 'opted_in',
+      })
+    })
+
+    it('setConsent accepts open (unknown) channel strings without rejecting them', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      // rcs / voice / app_notification are not shipped today but must pass through.
+      c.setConsent(['rcs', 'voice', 'app_notification'], 'opted_in')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+      expect(transport.sent[0].properties).toEqual({
+        channels: ['rcs', 'voice', 'app_notification'],
+        status: 'opted_in',
+      })
+    })
+
+    it('invalid status sends nothing, warns once (debug), and does not throw', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+      c.init({ writeKey: 'pk_test_x', debug: true, autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      // @ts-expect-error testing runtime guard on an invalid status
+      expect(() => c.setConsent('email', 'maybe')).not.toThrow()
+      // @ts-expect-error second invalid call must not double-warn
+      c.setConsent('sms', 'nope')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(transport.sent).toHaveLength(0)
+      const statusWarnings = debugSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && args[0].includes('invalid status'),
+      )
+      expect(statusWarnings).toHaveLength(1)
+      debugSpy.mockRestore()
+    })
+
+    it('empty channel list is a soft no-op (no event, no throw)', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+      expect(() => c.optOut('   ')).not.toThrow()
+      expect(() => c.optIn([])).not.toThrow()
+      await vi.advanceTimersByTimeAsync(100)
+      expect(transport.sent).toHaveLength(0)
+    })
+
+    it('optOut() before init() does not throw (warns, drops — like track)', () => {
+      const c = new AdfiniaClient()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      expect(() => c.optOut(['email', 'sms'])).not.toThrow()
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('consent event carries the current identity', async () => {
+      const transport = new CapturingTransport()
+      const c = new AdfiniaClient({ transport })
+      c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 2, flushIntervalMs: 60_000 })
+      c.identify('cust_42')
+      c.optOut('whatsapp')
+      await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+      expect(transport.sent[1].event).toBe('consent_updated')
+      expect(transport.sent[1].customer_id).toBe('cust_42')
+    })
+  })
+
   it('alias() is a deprecated no-op: emits no event and warns exactly once', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })

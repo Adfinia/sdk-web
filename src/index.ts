@@ -24,6 +24,8 @@ import { WebPush, type WebPushConfig, type WebPushSubscribeResult } from './webp
 import type {
   AdfiniaConfig,
   CallOptions,
+  ConsentChannel,
+  ConsentStatus,
   IdentifyArg,
   Properties,
   Traits,
@@ -35,7 +37,9 @@ export type {
   AdfiniaIdentity,
   AdfiniaPayload,
   CallOptions,
+  ConsentChannel,
   ConsentFn,
+  ConsentStatus,
   IdentifyArg,
   Properties,
   Traits,
@@ -71,6 +75,26 @@ export const Adfinia = {
   },
   screen(name?: string, properties?: Properties, options?: CallOptions): void {
     singleton.screen(name, properties, options)
+  },
+  /**
+   * Record a write-only consent decision for one or more channels. `channels`
+   * is a single channel string or an array of them; `status` is `'opted_in'`
+   * or `'opted_out'`. Channels are open strings (not an enum) — the backend
+   * owns the valid-channel registry. Emits one `consent_updated` event with
+   * `channels` always an array. Never throws; safe to call from a GTM tag
+   * (works via `window.Adfinia.optOut([...])`, and before init() it warns and
+   * drops just like identify/track).
+   */
+  setConsent(channels: ConsentChannel | ConsentChannel[], status: ConsentStatus): void {
+    singleton.setConsent(channels, status)
+  },
+  /** Shorthand for setConsent(channels, 'opted_in'). */
+  optIn(channels: ConsentChannel | ConsentChannel[]): void {
+    singleton.optIn(channels)
+  },
+  /** Shorthand for setConsent(channels, 'opted_out'). */
+  optOut(channels: ConsentChannel | ConsentChannel[]): void {
+    singleton.optOut(channels)
   },
   /**
    * @deprecated Deprecated: alias() is a no-op (no server-side handler). Anonymous sessions are promoted automatically by identify(). This method will be removed in the next major version.

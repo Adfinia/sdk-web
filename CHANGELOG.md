@@ -4,6 +4,35 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.4.1] - 2026-07-22
+
+Patch release. Additive only; every existing call site compiles and behaves
+identically.
+
+### Added - write-only multi-channel consent API
+- New methods `setConsent(channels, status)`, `optIn(channels)`, and
+  `optOut(channels)` on both the module export and the IIFE global
+  (`window.Adfinia`). `channels` is a single channel string OR an array of
+  strings; `status` is `'opted_in'` or `'opted_out'`.
+- Channels are **open strings**, not an enum. The backend owns the
+  valid-channel registry (email/whatsapp/sms/push today, extensible to
+  rcs/voice/app_notification later); the SDK forwards whatever channel value
+  it is given (trim + lowercase only) so new backend channels work with no SDK
+  release. Unknown channels are never rejected.
+- **Write-only:** there is intentionally no `getConsent()` / read method.
+- Emits exactly one event: `track('consent_updated', { channels: [...],
+  status })`. `channels` is ALWAYS an array on the wire, even for a single
+  channel. The event flows through the existing track/enqueue/transport path;
+  the backend `ConsentSink` consumes `consent_updated`.
+- Never throws. An invalid `status` logs a one-time debug warning and sends
+  nothing; an empty channel list is a soft no-op. Safe from GTM: a tag calling
+  `window.Adfinia.optOut(['email','sms'])` before `init()` warns and drops just
+  like `identify` / `track`, and can never break the host page.
+
+### Changed
+- `LIBRARY_VERSION` -> `1.4.1`; `X-Adfinia-SDK-Version` reports
+  `adfinia-sdk-web@1.4.1`.
+
 ## [1.4.0] - 2026-07-22
 
 Minor release. Non-breaking deprecation: `alias()` is now a no-op. Every

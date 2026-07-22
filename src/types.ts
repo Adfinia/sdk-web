@@ -133,6 +133,21 @@ export type Traits = IdentifyTraits | Record<string, unknown>
  */
 export type ConsentFn = () => boolean
 
+/**
+ * Consent status for setConsent() / optIn() / optOut(). The only two values
+ * the wire accepts. Emitted as the `status` property on the
+ * `consent_updated` event.
+ */
+export type ConsentStatus = 'opted_in' | 'opted_out'
+
+/**
+ * A consent channel. Deliberately an OPEN string, NOT an enum: the backend
+ * owns the valid-channel registry (email/whatsapp/sms/push today, extensible
+ * to rcs/voice/app_notification later). The SDK passes whatever channel
+ * string it is given so new backend channels work with no SDK release.
+ */
+export type ConsentChannel = string
+
 export interface AdfiniaConfig {
   /**
    * The tenant's write-only public key, issued from the Adfinia console at

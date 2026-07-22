@@ -98,6 +98,9 @@ string); the server treats them as "leave existing value alone".
 | `Adfinia.track(event, properties?, { context?, externalId? }?)` | Event name + properties + per-call context / external id. |
 | `Adfinia.page(name?, properties?, { context?, externalId? }?)` | Page view. Auto-captures URL/title/referrer if no args. |
 | `Adfinia.screen(name?, properties?, { context?, externalId? }?)` | Parity hook for mobile SDKs; identical to `page()` on web. |
+| `Adfinia.setConsent(channels, status)` | Write-only consent. `channels` is a single channel string or an array; `status` is `'opted_in'` or `'opted_out'`. Channels are open strings (not an enum) - the backend owns the valid-channel registry. Emits one `consent_updated` event with `channels` always an array. No read method by design. |
+| `Adfinia.optIn(channels)` | Shorthand for `setConsent(channels, 'opted_in')`. |
+| `Adfinia.optOut(channels)` | Shorthand for `setConsent(channels, 'opted_out')`. Safe from a GTM tag (`window.Adfinia.optOut(['email','sms'])`); never throws. |
 | `Adfinia.alias(newId, previousId?)` | **Deprecated (no-op).** There is no server-side alias handler; this method does nothing and will be removed in the next major version. Anonymous sessions are promoted to a known customer automatically by `identify()` (the identify event carries the live anonymous_id). |
 | `Adfinia.reset()` | Logout — mints a new anonymous_id and clears external_id. |
 | `Adfinia.flush()` | Promise — drains the queue and resolves when the in-flight batch settles. Use before a critical navigation. |

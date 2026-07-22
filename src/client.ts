@@ -7,7 +7,9 @@ import type {
   AdfiniaConfig,
   AdfiniaPayload,
   CallOptions,
+  ConsentChannel,
   ConsentFn,
+  ConsentStatus,
   IdentifyArg,
   Properties,
   Traits,
@@ -48,6 +50,8 @@ export class AdfiniaClient {
   private lastAutoPageUrl: string | null = null
   /** Guards the one-time deprecation warning emitted by alias(). */
   private aliasDeprecationWarned = false
+  /** Guards the one-time invalid-status warning emitted by setConsent(). */
+  private consentStatusWarned = false
   /** Restores the patched history methods on teardown (tests). */
   private restoreHistory: (() => void) | null = null
 
@@ -229,6 +233,55 @@ export class AdfiniaClient {
       anonymous_id: this.identityStore.anonymousId(),
       properties,
     }, options?.context)
+  }
+
+  /**
+   * Record a consent decision for one or more channels. Write-only: the SDK
+   * key can set consent but never read it back (there is intentionally no
+   * getConsent()).
+   *
+   * `channels` accepts a single channel string OR an array of channel
+   * strings. Channels are OPEN strings, not an enum: the backend owns the
+   * valid-channel registry (email/whatsapp/sms/push today, extensible to
+   * rcs/voice/app_notification later), so whatever channel value is passed
+   * is forwarded and future backend channels work with no SDK release. We
+   * only trim + lowercase for consistency.
+   *
+   * Emits exactly ONE event:
+   *   track('consent_updated', { channels: [<normalized>], status })
+   * where `channels` is ALWAYS an array on the wire (even for one channel).
+   *
+   * Never throws. An invalid `status` logs a one-time debug warning and
+   * sends nothing. An empty channel list is a soft no-op (debug note).
+   */
+  setConsent(channels: ConsentChannel | ConsentChannel[], status: ConsentStatus): void {
+    if (status !== 'opted_in' && status !== 'opted_out') {
+      if (!this.consentStatusWarned) {
+        this.consentStatusWarned = true
+        this.debug(
+          `setConsent() called with invalid status "${String(status)}" — expected "opted_in" or "opted_out"; nothing sent`,
+        )
+      }
+      return
+    }
+    const list = normalizeChannels(channels)
+    if (list.length === 0) {
+      this.debug('setConsent() called with no channels — nothing sent')
+      return
+    }
+    // Reuse the standard track path: guard (init + consent gate), enqueue,
+    // transport. The backend ConsentSink consumes `consent_updated`.
+    this.track('consent_updated', { channels: list, status })
+  }
+
+  /** Shorthand for setConsent(channels, 'opted_in'). */
+  optIn(channels: ConsentChannel | ConsentChannel[]): void {
+    this.setConsent(channels, 'opted_in')
+  }
+
+  /** Shorthand for setConsent(channels, 'opted_out'). */
+  optOut(channels: ConsentChannel | ConsentChannel[]): void {
+    this.setConsent(channels, 'opted_out')
   }
 
   /**
@@ -477,6 +530,19 @@ export class AdfiniaClient {
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url
+}
+
+/**
+ * Normalize a single channel string or an array into a clean string array:
+ * drop non-strings, trim, lowercase, drop empties. Does NOT reject unknown
+ * channel values — the backend owns the valid-channel registry.
+ */
+function normalizeChannels(channels: string | string[]): string[] {
+  const arr = Array.isArray(channels) ? channels : [channels]
+  return arr
+    .filter((c): c is string => typeof c === 'string')
+    .map((c) => c.trim().toLowerCase())
+    .filter((c) => c.length > 0)
 }
 
 function safeConsentCheck(fn: ConsentFn): boolean {

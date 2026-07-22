@@ -89,15 +89,31 @@ describe('AdfiniaClient', () => {
     expect(transport.sent[1].customer_id).toBe('cust_42')
   })
 
-  it('alias() emits an alias event and updates the active identity', async () => {
+  it('alias() is a deprecated no-op: emits no event and warns exactly once', async () => {
     const transport = new CapturingTransport()
     const c = new AdfiniaClient({ transport })
-    c.init({ writeKey: 'pk_test_x', autoPage: false, flushAt: 1, flushIntervalMs: 60_000 })
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    c.init({
+      writeKey: 'pk_test_x',
+      debug: true,
+      autoPage: false,
+      flushAt: 1,
+      flushIntervalMs: 60_000,
+    })
     c.alias('cust_new', 'cust_old')
-    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
-    expect(transport.sent[0].type).toBe('alias')
-    expect(transport.sent[0].customer_id).toBe('cust_new')
-    expect(transport.sent[0].previous_id).toBe('cust_old')
+    c.alias('cust_new_again')
+    // Give the queue a tick; nothing should ever be enqueued or transmitted.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(transport.sent).toHaveLength(0)
+    expect(c._queueLength()).toBe(0)
+    // The active identity is untouched; alias() no longer promotes anyone.
+    expect(c._identityStore().customerId()).toBeUndefined()
+    // One-time deprecation warning fired on the FIRST call only.
+    const aliasWarnings = debugSpy.mock.calls.filter(
+      (args) => typeof args[0] === 'string' && args[0].includes('alias() is deprecated'),
+    )
+    expect(aliasWarnings).toHaveLength(1)
+    debugSpy.mockRestore()
   })
 
   it('reset() mints a new anonymous_id', () => {

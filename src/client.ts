@@ -46,6 +46,8 @@ export class AdfiniaClient {
   private unloadHandler: (() => void) | null = null
   /** Last path+search auto-page() fired for — guards against double-fire. */
   private lastAutoPageUrl: string | null = null
+  /** Guards the one-time deprecation warning emitted by alias(). */
+  private aliasDeprecationWarned = false
   /** Restores the patched history methods on teardown (tests). */
   private restoreHistory: (() => void) | null = null
 
@@ -229,22 +231,25 @@ export class AdfiniaClient {
     }, options?.context)
   }
 
+  /**
+   * @deprecated Deprecated: alias() is a no-op (no server-side handler). Anonymous sessions are promoted automatically by identify(). This method will be removed in the next major version.
+   */
   alias(newId: string, previousId?: string): void {
-    if (!this.guard('alias')) return
-    if (!newId) {
-      this.debug('alias() called without a newId — dropped')
-      return
+    // No-op by design. There is no server-side alias handler; the backend only
+    // processes track + identify. Anonymous->known promotion already happens
+    // automatically via identify() (the identify event carries the live
+    // anonymous_id). We intentionally do NOT enqueue or transmit any event.
+    //
+    // The signature is kept identical so existing callers still compile; the
+    // arguments are deliberately unused.
+    void newId
+    void previousId
+    if (!this.aliasDeprecationWarned) {
+      this.aliasDeprecationWarned = true
+      this.debug(
+        'alias() is deprecated and is now a no-op (no server-side handler); anonymous sessions are promoted automatically by identify(). This method will be removed in the next major version.',
+      )
     }
-    const prev = previousId ?? this.identityStore.customerId() ?? this.identityStore.anonymousId()
-    this.enqueue({
-      type: 'alias',
-      customer_id: newId,
-      external_id: this.identityStore.externalId(),
-      anonymous_id: this.identityStore.anonymousId(),
-      previous_id: prev,
-    })
-    // After alias, the customer_id is now the new id.
-    this.identityStore.identify(newId)
   }
 
   reset(): void {

@@ -72,6 +72,9 @@ export const Adfinia = {
   screen(name?: string, properties?: Properties, options?: CallOptions): void {
     singleton.screen(name, properties, options)
   },
+  /**
+   * @deprecated Deprecated: alias() is a no-op (no server-side handler). Anonymous sessions are promoted automatically by identify(). This method will be removed in the next major version.
+   */
   alias(newId: string, previousId?: string): void {
     singleton.alias(newId, previousId)
   },

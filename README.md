@@ -98,7 +98,7 @@ string); the server treats them as "leave existing value alone".
 | `Adfinia.track(event, properties?, { context?, externalId? }?)` | Event name + properties + per-call context / external id. |
 | `Adfinia.page(name?, properties?, { context?, externalId? }?)` | Page view. Auto-captures URL/title/referrer if no args. |
 | `Adfinia.screen(name?, properties?, { context?, externalId? }?)` | Parity hook for mobile SDKs; identical to `page()` on web. |
-| `Adfinia.alias(newId, previousId?)` | Link the anonymous session to a known customer. |
+| `Adfinia.alias(newId, previousId?)` | **Deprecated (no-op).** There is no server-side alias handler; this method does nothing and will be removed in the next major version. Anonymous sessions are promoted to a known customer automatically by `identify()` (the identify event carries the live anonymous_id). |
 | `Adfinia.reset()` | Logout — mints a new anonymous_id and clears external_id. |
 | `Adfinia.flush()` | Promise — drains the queue and resolves when the in-flight batch settles. Use before a critical navigation. |
 | `Adfinia.registerWebPush({ vapidPublicKey, ... })` | Promise — registers a web-push subscription (service worker + permission + PushManager). See [Web push](#web-push). |

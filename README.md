@@ -105,6 +105,11 @@ string); the server treats them as "leave existing value alone".
 | `Adfinia.reset()` | Logout — mints a new anonymous_id and clears external_id. |
 | `Adfinia.flush()` | Promise — drains the queue and resolves when the in-flight batch settles. Use before a critical navigation. |
 | `Adfinia.registerWebPush({ vapidPublicKey, ... })` | Promise — registers a web-push subscription (service worker + permission + PushManager). See [Web push](#web-push). |
+| `Adfinia.notifications.list({ status?, cursor?, limit? })` | Promise — a page of in-app notifications: `{ data, nextCursor, hasMore }`. See [In-app inbox](#in-app-inbox). |
+| `Adfinia.notifications.markRead(id)` | Promise&lt;boolean&gt; — mark one notification read. |
+| `Adfinia.notifications.markAllRead()` | Promise&lt;boolean&gt; — mark all read for the current contact. |
+| `Adfinia.notifications.subscribe(handler, options?)` | Live SSE subscription. Returns `{ unsubscribe() }`. Replays unread on connect. |
+| `Adfinia.notifications.trackOpened(n)` / `trackClicked(n)` | Emit `notification_opened` / `notification_clicked` track events. |
 
 ### `AdfiniaConfig`
 
@@ -204,6 +209,48 @@ The worker shows the notification and emits `push_received` / `push_clicked` bac
 > **VAPID key.** Get your tenant VAPID public key from the Adfinia console (Settings → Channels → Push). You can pass it as `vapidPublicKey`, or set `fetchVapidFromConfig: true` to have the SDK pull it from `/sdk/config` (requires server support for that field).
 >
 > **iOS.** Web push works on Android + desktop Chrome/Firefox/Edge today. iOS Safari 16.4+ supports web push only for home-screen-added PWAs — lead with email/SMS there.
+
+### In-app inbox
+
+`Adfinia.notifications` is a framework-agnostic data client for the in-app notification inbox. It ships **no UI** — you render the bell, list, and toasts; the SDK gives you typed notifications, a live stream, and the open/click events.
+
+```ts
+// 1. Page through the inbox (cursor-paginated).
+const page = await Adfinia.notifications.list({ status: 'unread', limit: 20 })
+renderList(page.data)
+if (page.hasMore) {
+  const next = await Adfinia.notifications.list({ cursor: page.nextCursor! })
+}
+
+// 2. Subscribe to live updates. On connect the handler is called once per
+//    currently-unread notification (replay), then once per new one (SSE).
+const sub = Adfinia.notifications.subscribe((n) => {
+  showToast(n) // { id, title, body, severity, deep_link?, ... }
+})
+
+// 3. Mark read + record engagement when the user interacts.
+async function onOpen(n) {
+  Adfinia.notifications.trackOpened(n)   // -> notification_opened
+  await Adfinia.notifications.markRead(n.id)
+}
+function onClick(n) {
+  Adfinia.notifications.trackClicked(n)  // -> notification_clicked
+  if (n.deep_link) router.push(n.deep_link)
+}
+
+await Adfinia.notifications.markAllRead()
+
+// 4. Tear down (e.g. on logout / unmount).
+sub.unsubscribe()
+```
+
+The `InboxNotification` shape is `{ id, contact_id, title, body, severity('info'|'success'|'warning'|'error'), dismissable, deep_link?, data?, read, created_at, read_at?, expires_at? }`.
+
+**Identity.** The inbox is keyed on the current contact. The SDK resolves `contact_id` from the active identity in the server's order — `customer_id > external_id > anonymous_id`. Call `identify(...)` first, or pass `{ contactId }` explicitly to any method.
+
+**Live stream vs push.** `subscribe()` opens an `EventSource` that runs **in the page** — it's the foreground channel for a live inbox while the tab is open. It's complementary to [web push](#web-push): the service worker delivers **background** system notifications when the tab is closed. Use both. Where `EventSource` is unavailable, `subscribe()` still replays unread on connect; only the live push part is skipped.
+
+> **Auth.** `EventSource` can't set an `Authorization` header, so the write key + SDK version ride the stream URL as query params — the gateway accepts both forms (same as the `sendBeacon` unload path).
 
 ### Last-mile delivery on unload
 

@@ -11,7 +11,7 @@
 // minimum supported version per SDK. Below the floor → 426 Upgrade Required.
 
 export const LIBRARY_NAME = 'adfinia-sdk-web'
-export const LIBRARY_VERSION = '1.4.1'
+export const LIBRARY_VERSION = '1.5.0'
 
 /** Value to send as the `X-Adfinia-SDK-Version` header on every request. */
 export const SDK_VERSION_HEADER = `${LIBRARY_NAME}@${LIBRARY_VERSION}`

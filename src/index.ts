@@ -20,6 +20,7 @@
  * `AdfiniaClient` directly (also exported).
  */
 import { AdfiniaClient } from './client'
+import { NotificationsClient } from './notifications'
 import { WebPush, type WebPushConfig, type WebPushSubscribeResult } from './webpush'
 import type {
   AdfiniaConfig,
@@ -47,9 +48,35 @@ export type {
 
 export type { WebPushConfig, WebPushSubscribeResult } from './webpush'
 
+export type {
+  EventSourceFactory,
+  EventSourceLike,
+  InboxBridge,
+  InboxNotification,
+  ListNotificationsOptions,
+  NotificationHandler,
+  NotificationSeverity,
+  NotificationStatus,
+  NotificationsPage,
+  NotificationsSubscription,
+  SubscribeOptions,
+} from './notifications'
+
 export { AdfiniaClient } from './client'
+export { NotificationsClient } from './notifications'
 
 const singleton = new AdfiniaClient()
+
+/**
+ * In-app notification inbox, bound to the singleton. Framework-agnostic data
+ * client — the host app renders the UI. See {@link NotificationsClient}.
+ *
+ *   Adfinia.notifications.list({ status: 'unread' })
+ *   const sub = Adfinia.notifications.subscribe((n) => renderToast(n))
+ *   Adfinia.notifications.markRead(n.id)
+ *   sub.unsubscribe()
+ */
+const notifications = new NotificationsClient(() => singleton._notificationsBridge())
 
 /**
  * `Adfinia` is the singleton wrapper around `AdfiniaClient`. It is the
@@ -117,6 +144,12 @@ export const Adfinia = {
   async registerWebPush(config: WebPushConfig): Promise<WebPushSubscribeResult> {
     return WebPush.subscribe(singleton, config)
   },
+  /**
+   * In-app notification inbox. `list()` / `markRead()` / `markAllRead()` /
+   * `subscribe()` plus the `trackOpened` / `trackClicked` event helpers. The
+   * SDK ships no UI — the host app renders. See {@link NotificationsClient}.
+   */
+  notifications,
   /**
    * Escape hatch for advanced use cases that need a private instance
    * (multi-tenant SSR, isolated test contexts, etc.).

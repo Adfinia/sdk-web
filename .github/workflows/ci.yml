@@ -16,7 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ['18', '20', '22']
+        # vitest 4 (dev test runner) requires Node >=20.19; Node 18 is EOL and
+        # dropped from the test matrix. The published SDK still supports Node 18
+        # (package.json engines + es2020 build target) - only the test tooling
+        # needs a newer Node.
+        node: ['20', '22', '24']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

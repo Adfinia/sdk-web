@@ -50,10 +50,13 @@ jobs:
         run: |
           set -e
           SIZE=$(stat -c%s dist/adfinia.iife.js 2>/dev/null || stat -f%z dist/adfinia.iife.js)
-          # Budget bumped 15000 -> 24000 for v1.2.0: web-push client, first-touch
-          # acquisition capture, auto-page, and external_id identity add ~5.5 KB
-          # raw (~2 KB gzipped). Still under 8 KB on the wire after gzip.
-          MAX=24000
+          # Budget history: 15000 (initial) -> 24000 for v1.2.0 (web-push client,
+          # first-touch acquisition, auto-page, external_id identity) -> 26000 for
+          # v1.5.0. v1.5.0 adds the in-app inbox client (SSE stream + REST
+          # history/mark-read) on top of web-push, ~2 KB raw. Raw is now ~24.2 KB
+          # but only ~7.5 KB gzipped, which is what ships on the wire (well under
+          # 8 KB). The raw budget is the guardrail against runaway growth.
+          MAX=26000
           echo "IIFE bundle: $SIZE bytes (max $MAX)"
           if [ "$SIZE" -gt "$MAX" ]; then
             echo "::error::IIFE bundle exceeded $MAX bytes"

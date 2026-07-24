@@ -39,4 +39,12 @@ describe('public exports', () => {
       expect(typeof (Adfinia as Record<string, unknown>)[method]).toBe('function')
     }
   })
+
+  it('exposes the notifications inbox client', () => {
+    const n = (Adfinia as Record<string, any>).notifications
+    expect(n).toBeDefined()
+    for (const method of ['list', 'markRead', 'markAllRead', 'subscribe', 'trackOpened', 'trackClicked']) {
+      expect(typeof n[method]).toBe('function')
+    }
+  })
 })

@@ -4,6 +4,45 @@ All notable changes to the official Adfinia web SDK land here. Format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the SDK
 follows [semver](https://semver.org/) starting at 1.0.0.
 
+## [1.5.0] - 2026-07-24
+
+Minor release. Additive only; every existing call site compiles and behaves
+identically.
+
+### Added - in-app notification inbox client
+- New `Adfinia.notifications` surface (also on `window.Adfinia`) — a
+  framework-agnostic DATA client for the backend in-app inbox. Ships **no UI**;
+  the host app renders the bell / list / toast.
+- `notifications.list({ status, cursor, limit, contactId? })` → typed
+  `{ data: InboxNotification[], nextCursor, hasMore }`. GETs
+  `/api/v1/notifications`. Cursor-paginated. Status filter `all | unread | read`.
+- `notifications.markRead(id)` → POST `/api/v1/notifications/{id}/read`.
+- `notifications.markAllRead()` → POST `/api/v1/notifications/read-all`.
+- `notifications.subscribe(handler, options?)` → live SSE subscription over
+  `EventSource` against `/api/v1/notifications/stream`. On connect it replays
+  currently-unread notifications through the handler (opt out with
+  `replayUnread: false`), then streams new ones. Delivery is de-duped by id;
+  `unsubscribe()` closes the stream and guarantees no further handler calls
+  (including from an in-flight replay). The stream runs in the PAGE — it is
+  complementary to the web-push service worker (background notifications).
+- `notifications.trackOpened(n)` / `notifications.trackClicked(n)` emit the
+  `notification_opened` / `notification_clicked` track events (id + severity +
+  deep_link), consistent with the existing `notification_permission_*` /
+  `push_received` / `push_clicked` push contract.
+- Identity: `contact_id` resolves from the current SDK identity in the server's
+  order (customer_id > external_id > anonymous_id); override per call with
+  `{ contactId }`.
+- Never throws. Network / parse failures soft-fail to an empty page or a no-op
+  subscription plus a debug log.
+- New exported types: `InboxNotification`, `NotificationSeverity`,
+  `NotificationStatus`, `NotificationsPage`, `ListNotificationsOptions`,
+  `SubscribeOptions`, `NotificationHandler`, `NotificationsSubscription`, plus
+  the `NotificationsClient` class for isolated instances.
+
+### Changed
+- `LIBRARY_VERSION` -> `1.5.0`; `X-Adfinia-SDK-Version` reports
+  `adfinia-sdk-web@1.5.0`.
+
 ## [1.4.1] - 2026-07-22
 
 Patch release. Additive only; every existing call site compiles and behaves

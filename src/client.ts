@@ -359,6 +359,37 @@ export class AdfiniaClient {
     }
   }
 
+  /**
+   * Internal accessor used by the in-app inbox module. Surfaces the host +
+   * write key + SDK version, the authenticated transport (mark-read POSTs), a
+   * fetcher (list GET), the current identity, a track() shim, the debug logger,
+   * and an EventSource factory (live SSE). Returns null before init(). Mirrors
+   * `_webPushBridge`.
+   */
+  _notificationsBridge(): import('./notifications').InboxBridge | null {
+    if (!this.initialised) return null
+    return {
+      host: this.config.host,
+      writeKey: this.config.writeKey,
+      sdkVersion: SDK_VERSION_HEADER,
+      transport: this.transport,
+      fetcher:
+        typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : undefined,
+      identity: () => ({
+        customer_id: this.identityStore.customerId(),
+        external_id: this.identityStore.externalId(),
+        anonymous_id: this.identityStore.anonymousId(),
+      }),
+      track: (event, properties) => this.track(event, properties),
+      debug: (msg, extra) => this.debug(msg, extra),
+      eventSourceFactory:
+        typeof (globalThis as { EventSource?: unknown }).EventSource === 'function'
+          ? (url: string) =>
+              new (globalThis as unknown as { EventSource: new (u: string) => import('./notifications').EventSourceLike }).EventSource(url)
+          : null,
+    }
+  }
+
   /** Internal — exposed for tests. */
   _identityStore(): IdentityStore {
     return this.identityStore
